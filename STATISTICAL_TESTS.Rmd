@@ -1,0 +1,3929 @@
+---
+title: "STATISTICAL_TESTS"
+output: html_document
+date: "2025-04-23"
+---
+
+
+
+```{r}
+library(raster)
+library(sf)
+library(spdep)
+library(spatstat)
+library(tidyverse)
+library(lme4)
+library(vegan)
+library(ggplot2)
+library(viridis)
+library(terra)
+library(patchwork)
+library(broom)
+library(lmtest)
+library(sandwich)  
+library(exactextractr)
+library(forecast)
+library(tseries)
+library(networkD3)
+library(htmlwidgets)
+library(webshot)
+library(stringr)
+library(plotly)
+library(akima)
+library(ggnewscale)
+library(ggforce)
+library(ggspatial)
+library(RColorBrewer) 
+
+```
+
+```{r}
+
+# Function to read and prepare raster data
+read_fsi_raster <- function(filename) {
+  raster(filename)
+}
+```
+
+
+```{r}
+
+
+# Create paths for different scenarios
+rcp26_files <- list(
+  # 2030
+  noirr_2030_rcp26 = "FSI_2030_RCP26_noirr.tif",
+  irr_2030_rcp26 = "FSI_2030_RCP26_irr.tif",
+  # 2050
+  noirr_2050_rcp26 = "FSI_2050_RCP26_noirr.tif",
+  irr_2050_rcp26 = "FSI_2050_RCP26_irr.tif",
+  # 2080
+  noirr_2080_rcp26 = "FSI_2080_RCP26_noirr.tif",
+  irr_2080_rcp26 = "FSI_2080_RCP26_irr.tif"
+)
+
+rcp60_files <- list(
+  # 2030
+  noirr_2030_rcp60 = "FSI_2030_RCP60_noirr.tif",
+  irr_2030_rcp60 = "FSI_2030_RCP60_irr.tif",
+  # 2050
+  noirr_2050_rcp60 = "FSI_2050_RCP60_noirr.tif",
+  irr_2050_rcp60 = "FSI_2050_RCP60_irr.tif",
+  # 2080
+  noirr_2080_rcp60 = "FSI_2080_RCP60_noirr.tif",
+  irr_2080_rcp60 = "FSI_2080_RCP60_irr.tif"
+)
+
+ssp126_files <- list(
+  # 2030
+  noirr_2030_ssp126 = "FSI_2030_SSP1_26_noirr.tif",
+  irr_2030_ssp126 = "FSI_2030_SSP1_26_irr.tif",
+  # 2050
+  noirr_2050_ssp126 = "FSI_2050_SSP1_26_noirr.tif",
+  irr_2050_ssp126 = "FSI_2050_SSP1_26_irr.tif",
+  # 2080
+  noirr_2080_ssp126 = "FSI_2080_SSP1_26_noirr.tif",
+  irr_2080_ssp126 = "FSI_2080_SSP1_26_irr.tif"
+)
+
+ssp370_files <- list(
+  # 2030
+  noirr_2030_ssp370 = "FSI_2030_SSP3_70_noirr.tif",
+  irr_2030_ssp370 = "FSI_2030_SSP3_70_irr.tif",
+  # 2050
+  noirr_2050_ssp370 = "FSI_2050_SSP3_70_noirr.tif",
+  irr_2050_ssp370 = "FSI_2050_SSP3_70_irr.tif",
+  # 2080
+  noirr_2080_ssp370 = "FSI_2080_SSP3_70_noirr.tif",
+  irr_2080_ssp370 = "FSI_2080_SSP3_70_irr.tif"
+)
+
+ssp585_files <- list(
+  # 2030
+  noirr_2030_ssp585 = "FSI_2030_SSP5_85_noirr.tif",
+  irr_2030_ssp585 = "FSI_2030_SSP5_85_irr.tif",
+  # 2050
+  noirr_2050_ssp585 = "FSI_2050_SSP5_85_noirr.tif",
+  irr_2050_ssp585 = "FSI_2050_SSP5_85_irr.tif",
+  # 2080
+  noirr_2080_ssp585 = "FSI_2080_SSP5_85_noirr.tif",
+  irr_2080_ssp585 = "FSI_2080_SSP5_85_irr.tif"
+)
+
+# Function to load rasters from a list of file paths
+load_rasters <- function(file_list) {
+  rasters <- lapply(file_list, raster)
+  names(rasters) <- names(file_list)
+  return(rasters)
+}
+
+# Load all rasters
+rcp26_rasters <- load_rasters(rcp26_files)
+rcp60_rasters <- load_rasters(rcp60_files)
+ssp126_rasters <- load_rasters(ssp126_files)
+ssp370_rasters <- load_rasters(ssp370_files)
+ssp585_rasters <- load_rasters(ssp585_files)
+
+# Combine all rasters into one list if needed
+all_rasters <- c(
+  rcp26_rasters,
+  rcp60_rasters,
+  ssp126_rasters,
+  ssp370_rasters,
+  ssp585_rasters
+)
+
+# Optional: Create a data frame with metadata about each raster
+raster_metadata <- data.frame(
+  raster_name = names(all_rasters),
+  scenario = c(rep("RCP2.6", 6), rep("RCP6.0", 6), 
+              rep("SSP1-2.6", 6), rep("SSP3-7.0", 6), 
+              rep("SSP5-8.5", 6)),
+  year = rep(c(rep(2030, 2), rep(2050, 2), rep(2080, 2)), 5),
+  irrigation = rep(c("No irrigation", "Irrigation"), 15),
+  stringsAsFactors = FALSE
+)
+
+# Print summary of loaded rasters
+cat("Total number of rasters loaded:", length(all_rasters), "\n")
+print(raster_metadata)
+```
+```{r}
+# Access specific rasters
+rcp26_2030_noirr <- all_rasters$noirr_2030_rcp26
+ssp585_2080_irr <- all_rasters$irr_2080_ssp585
+
+# Check properties of a specific raster
+print(rcp26_2030_noirr)
+plot(rcp26_2030_noirr)
+```
+
+
+Irrigation vs non-irrigaiton:
+```{r}
+# Function to perform McNemar's test on a pair of rasters
+perform_mcnemar_test <- function(irr_raster, noirr_raster, scenario, year) {
+  # Convert rasters to vectors
+  irr_values <- values(irr_raster)
+  noirr_values <- values(noirr_raster)
+  
+  # Remove NA values (where both rasters have data)
+  valid_pixels <- !is.na(irr_values) & !is.na(noirr_values)
+  irr_values <- irr_values[valid_pixels]
+  noirr_values <- noirr_values[valid_pixels]
+  
+  # Create contingency table
+  cont_table <- table(Irrigation = irr_values, No_Irrigation = noirr_values)
+  
+  # Perform McNemar's test
+  test_result <- mcnemar.test(cont_table)
+  
+  # Calculate effect size (Odds Ratio)
+  b <- cont_table[1,2]  # Changed from 0 to 1 with irrigation
+  c <- cont_table[2,1]  # Changed from 1 to 0 with irrigation
+  odds_ratio <- b/c
+  
+  # Create summary table
+  summary_stats <- data.frame(
+    Scenario = scenario,
+    Year = year,
+    Chi_Square = test_result$statistic,
+    P_Value = test_result$p.value,
+    Odds_Ratio = odds_ratio,
+    N_00 = cont_table[1,1], 
+    N_01 = cont_table[1,2], 
+    N_10 = cont_table[2,1], 
+    N_11 = cont_table[2,2]  
+  )
+  
+  return(summary_stats)
+}
+
+# Function to analyze all time periods for a scenario
+analyze_scenario <- function(irr_rasters, noirr_rasters, scenario) {
+  years <- c(2030, 2050, 2080)
+  results <- list()
+  
+  for(i in 1:length(years)) {
+    year <- years[i]
+    irr_name <- paste0("irr_", year, "_", tolower(scenario))
+    noirr_name <- paste0("noirr_", year, "_", tolower(scenario))
+    
+    results[[i]] <- perform_mcnemar_test(
+      irr_rasters[[irr_name]], 
+      noirr_rasters[[noirr_name]], 
+      scenario, 
+      year
+    )
+  }
+  
+  return(do.call(rbind, results))
+}
+
+# Analyze all scenarios
+scenarios <- c("rcp26", "rcp60", "ssp126", "ssp370", "ssp585")
+all_results <- list()
+
+for(scenario in scenarios) {
+  # Get relevant rasters for this scenario
+  scenario_rasters <- all_rasters[grep(scenario, names(all_rasters))]
+  
+  # Split into irrigation and non-irrigation rasters
+  irr_rasters <- scenario_rasters[grep("irr_", names(scenario_rasters))]
+  noirr_rasters <- scenario_rasters[grep("noirr_", names(scenario_rasters))]
+  
+  # Perform analysis
+  all_results[[scenario]] <- analyze_scenario(irr_rasters, noirr_rasters, scenario)
+}
+
+# Combine all results
+final_results <- do.call(rbind, all_results)
+rownames(final_results) <- NULL
+
+# Add FDR-corrected p-values
+final_results$P_Value_Adjusted <- p.adjust(final_results$P_Value, method = "fdr")
+
+# Print results
+print(final_results)
+
+# Create visualization of results
+
+#P-values across scenarios and time
+p1 <- ggplot(final_results, aes(x = as.factor(Year), y = -log10(P_Value), 
+                               color = Scenario, group = Scenario)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Significance of Irrigation Effect Over Time",
+       y = "-log10(p-value)",
+       x = "Year") +
+  theme(legend.position = "bottom")
+
+#Odds Ratios across scenarios and time
+p2 <- ggplot(final_results, aes(x = as.factor(Year), y = Odds_Ratio, 
+                               color = Scenario, group = Scenario)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "Effect Size of Irrigation Over Time",
+       y = "Odds Ratio",
+       x = "Year") +
+  theme(legend.position = "bottom")
+
+# Save results to CSV
+write.csv(final_results, "mcnemar_test_results.csv", row.names = FALSE)
+
+# Save plots
+ggsave("mcnemar_pvalues.png", p1, width = 10, height = 6)
+ggsave("mcnemar_oddsratios.png", p2, width = 10, height = 6)
+
+# Print summary statistics
+cat("\nSummary of McNemar's Test Results:\n")
+cat("Number of significant tests (p < 0.05):", sum(final_results$P_Value < 0.05), "\n")
+cat("Number of significant tests after FDR correction:", sum(final_results$P_Value_Adjusted < 0.05), "\n")
+cat("Range of Odds Ratios:", range(final_results$Odds_Ratio), "\n")
+
+# Create summary table by scenario
+scenario_summary <- final_results %>%
+  group_by(Scenario) %>%
+  summarize(
+    Mean_Odds_Ratio = mean(Odds_Ratio),
+    Min_P_Value = min(P_Value),
+    Max_P_Value = max(P_Value),
+    Significant_Tests = sum(P_Value < 0.05)
+  )
+
+print("\nScenario Summary:")
+print(scenario_summary)
+```
+
+```{r}
+# First, create a data frame from the McNemar's test results
+mcnemar_results <- data.frame(
+  Scenario = c("rcp26", "rcp26", "rcp26",
+               "rcp60", "rcp60", "rcp60",
+               "ssp126", "ssp126", "ssp126",
+               "ssp370", "ssp370", "ssp370",
+               "ssp585", "ssp585", "ssp585"),
+  Year = rep(c(2030, 2050, 2080), 5),
+  Chi_Square = c(3983.89, 5281.75, 2758.07,
+                 2050.03, 2207.67, 754.45,
+                 85.29, 247.58, 575.92,
+                 669.03, 23.55, 100.22,
+                 52.54, 6.89, 3.19),
+  P_Value = c(0, 0, 0,
+              0, 0, 4.33e-166,
+              2.57e-20, 8.76e-56, 2.90e-127,
+              1.62e-147, 1.22e-6, 1.36e-23,
+              4.23e-13, 8.65e-3, 7.43e-2),
+  Odds_Ratio = c(0.122, 0.157, 0.271,
+                 0.243, 0.221, 0.352,
+                 0.662, 0.515, 0.394,
+                 0.336, 0.798, 0.532,
+                 0.707, 0.892, 1.108),
+  N_00 = c(19467, 16676, 19086,
+           18248, 16174, 19524,
+           10981, 9593, 9740,
+           10908, 9712, 10225,
+           11142, 9568, 10373),
+  N_01 = c(710, 1346, 1790,
+           1081, 983, 856,
+           828, 825, 863,
+           682, 831, 375,
+           743, 1018, 655),
+  N_10 = c(5806, 8592, 6602,
+           4449, 4446, 2432,
+           1250, 1601, 2190,
+           2030, 1042, 705,
+           1051, 1141, 591),
+  N_11 = c(28200, 27569, 26705,
+           30405, 32580, 31371,
+           41124, 42164, 41390,
+           40563, 42598, 42878,
+           41247, 42456, 42564)
+)
+
+# Now we can create the transition heatmap for a specific scenario and year
+transition_heatmap(
+  subset(mcnemar_results, Scenario == "rcp26" & Year == 2030),
+  year = 2030,
+  scenario = "RCP2.6"
+)
+
+# Create the dashboard
+create_dashboard(mcnemar_results)
+
+# Create the faceted time series plot
+ggplot(mcnemar_results, aes(x = Year)) +
+  geom_line(aes(y = Odds_Ratio, color = "Effect Size"), size = 1) +
+  geom_line(aes(y = (N_01/(N_00 + N_01))*100/max((N_01/(N_00 + N_01))*100), 
+                color = "Improvement Rate"), size = 1) +
+  facet_wrap(~Scenario) +
+  scale_y_continuous(
+    name = "Effect Size",
+    sec.axis = sec_axis(~.*max((mcnemar_results$N_01/(mcnemar_results$N_00 + mcnemar_results$N_01))*100), 
+                        name = "Improvement Rate (%)")) +
+  theme_minimal() +
+  theme(axis.title.y.right = element_text(color = "red"),
+        axis.text.y.right = element_text(color = "red"))
+
+# Save the plots
+ggsave("transition_matrix.png", width = 10, height = 8)
+ggsave("dashboard.png", width = 10, height = 6)
+ggsave("timeseries.png", width = 12, height = 8)
+```
+
+
+Spatial Autocorrelation
+```{r}
+
+
+# Your raster files for different scenarios
+rcp26_files <- list(
+  # 2030
+  noirr_2030_rcp26 = "FSI_2030_RCP26_noirr.tif",
+  irr_2030_rcp26 = "FSI_2030_RCP26_irr.tif",
+  # 2050  
+  noirr_2050_rcp26 = "FSI_2050_RCP26_noirr.tif",
+  irr_2050_rcp26 = "FSI_2050_RCP26_irr.tif",
+  # 2080
+  noirr_2080_rcp26 = "FSI_2080_RCP26_noirr.tif",
+  irr_2080_rcp26 = "FSI_2080_RCP26_irr.tif"
+)
+
+rcp60_files <- list(
+  # 2030
+  noirr_2030_rcp60 = "FSI_2030_RCP60_noirr.tif",
+  irr_2030_rcp60 = "FSI_2030_RCP60_irr.tif",
+  # 2050
+  noirr_2050_rcp60 = "FSI_2050_RCP60_noirr.tif",
+  irr_2050_rcp60 = "FSI_2050_RCP60_irr.tif",
+  # 2080
+  noirr_2080_rcp60 = "FSI_2080_RCP60_noirr.tif",
+  irr_2080_rcp60 = "FSI_2080_RCP60_irr.tif"
+)
+
+ssp126_files <- list(
+  # 2030
+  noirr_2030_ssp126 = "FSI_2030_SSP1_26_noirr.tif",
+  irr_2030_ssp126 = "FSI_2030_SSP1_26_irr.tif",
+  # 2050
+  noirr_2050_ssp126 = "FSI_2050_SSP1_26_noirr.tif",
+  irr_2050_ssp126 = "FSI_2050_SSP1_26_irr.tif",
+  # 2080
+  noirr_2080_ssp126 = "FSI_2080_SSP1_26_noirr.tif",
+  irr_2080_ssp126 = "FSI_2080_SSP1_26_irr.tif"
+)
+
+ssp370_files <- list(
+  # 2030
+  noirr_2030_ssp370 = "FSI_2030_SSP3_70_noirr.tif",
+  irr_2030_ssp370 = "FSI_2030_SSP3_70_irr.tif",
+  # 2050
+  noirr_2050_ssp370 = "FSI_2050_SSP3_70_noirr.tif",
+  irr_2050_ssp370 = "FSI_2050_SSP3_70_irr.tif",
+  # 2080
+  noirr_2080_ssp370 = "FSI_2080_SSP3_70_noirr.tif",
+  irr_2080_ssp370 = "FSI_2080_SSP3_70_irr.tif"
+)
+
+ssp585_files <- list(
+  # 2030
+  noirr_2030_ssp585 = "FSI_2030_SSP5_85_noirr.tif",
+  irr_2030_ssp585 = "FSI_2030_SSP5_85_irr.tif",
+  # 2050
+  noirr_2050_ssp585 = "FSI_2050_SSP5_85_noirr.tif",
+  irr_2050_ssp585 = "FSI_2050_SSP5_85_irr.tif",
+  # 2080
+  noirr_2080_ssp585 = "FSI_2080_SSP5_85_noirr.tif",
+  irr_2080_ssp585 = "FSI_2080_SSP5_85_irr.tif"
+)
+
+# Function to load rasters
+load_rasters <- function(file_list) {
+  rasters <- lapply(file_list, raster)
+  names(rasters) <- names(file_list)
+  return(rasters)
+}
+
+# Load all rasters
+rcp26_rasters <- load_rasters(rcp26_files)
+rcp60_rasters <- load_rasters(rcp60_files)
+ssp126_rasters <- load_rasters(ssp126_files)
+ssp370_rasters <- load_rasters(ssp370_files)
+ssp585_rasters <- load_rasters(ssp585_files)
+
+# Combine all rasters into one list
+all_rasters <- c(rcp26_rasters, rcp60_rasters, ssp126_rasters, ssp370_rasters, ssp585_rasters)
+```
+
+```{r}
+
+
+# Read the raster file
+raster_data <- raster("FSI_2020_RCP26_noirr.tif")
+
+# Convert raster to points
+raster_pts <- rasterToPoints(raster_data)
+coords <- raster_pts[, c("x", "y")]
+values <- raster_pts[, 3]
+
+# Create spatial weights matrix
+nb <- dnearneigh(coords, d1 = 0, d2 = 1) 
+weights <- nb2listw(nb, style = "W")
+
+# Calculate Global Moran's I
+moran_result <- moran.test(values, weights)
+
+# Calculate Local Moran's I
+local_moran <- localmoran(values, weights)
+
+# Create results dataframe
+results_df <- data.frame(
+  x = coords[,1],
+  y = coords[,2],
+  value = values,
+  local_i = local_moran[,1],
+  p_value = local_moran[,5]
+)
+
+# Print Global Moran's I results
+print("Global Moran's I Results:")
+print(moran_result)
+
+# Create Local Moran's I plot
+p1 <- ggplot(results_df, aes(x = x, y = y)) +
+  geom_point(aes(color = local_i)) +
+  scale_color_viridis() +
+  theme_minimal() +
+  labs(title = "Local Moran's I: RCP2.6 2020 No Irrigation",
+       color = "Local I")
+
+# Save plot
+ggsave("local_morans_rcp26_2020_noirr.png", p1, width = 10, height = 8)
+```
+
+```{r}
+
+# Function to calculate accessibility based on market/road proximity
+calculate_accessibility <- function(fsi_raster, 
+                                 market_proximity, 
+                                 road_proximity, 
+                                 max_distance = 50000) {  # 50km default threshold
+  
+  # Read the rasters
+  fsi <- rast(fsi_raster)
+  market_dist <- rast(market_proximity)
+  road_dist <- rast(road_proximity)
+  
+  # Ensure all rasters have the same extent and resolution
+  market_dist <- resample(market_dist, fsi)
+  road_dist <- resample(road_dist, fsi)
+  
+  # Normalize distances (0-1 scale)
+  market_access <- 1 - (market_dist / max_distance)
+  market_access[market_access < 0] <- 0
+  
+  road_access <- 1 - (road_dist / max_distance)
+  road_access[road_access < 0] <- 0
+  
+  # Combined accessibility score (equal weights)
+  combined_access <- (market_access + road_access) / 2
+  
+  return(combined_access)
+}
+
+# Function to plot results
+plot_accessibility <- function(access_raster, title = "Accessibility Analysis") {
+  # Create color palette
+  cols <- colorRampPalette(c("red", "yellow", "green"))(100)
+  
+  # Plot
+  plot(access_raster, 
+       main = title,
+       col = cols,
+       legend = TRUE)
+}
+
+# Main analysis workflow
+main_analysis <- function() {
+  # Calculate accessibility
+  accessibility <- calculate_accessibility(
+    fsi_raster = "FSI_2020_RCP26_noirr.tif",
+    market_proximity = "market_locations.tif",
+    road_proximity = "Road_Proximity_2020_5km.tif"
+  )
+  
+  # Plot results
+  plot_accessibility(accessibility)
+  
+  # Save results
+  writeRaster(accessibility, 
+              filename = "accessibility_results.tif",
+              overwrite = TRUE)
+  
+  return(accessibility)
+}
+
+# Run the analysis
+results <- main_analysis()
+```
+```{r}
+# Function to analyze a single scenario pair
+analyze_scenario_pair <- function(noirr_path, irr_path, year, scenario) {
+  # Read rasters
+  noirr <- rast(noirr_path)
+  irr <- rast(irr_path)
+  
+  # Calculate difference
+  diff_rast <- irr - noirr
+  
+  # Calculate statistics
+  stats <- data.frame(
+    year = year,
+    scenario = scenario,
+    irrigation = c("Non-irrigated", "Irrigated", "Difference"),
+    mean = c(global(noirr, "mean", na.rm=TRUE)[[1]],
+             global(irr, "mean", na.rm=TRUE)[[1]],
+             global(diff_rast, "mean", na.rm=TRUE)[[1]]),
+    sd = c(global(noirr, "sd", na.rm=TRUE)[[1]],
+           global(irr, "sd", na.rm=TRUE)[[1]],
+           global(diff_rast, "sd", na.rm=TRUE)[[1]])
+  )
+  
+  return(list(
+    statistics = stats,
+    difference_raster = diff_rast
+  ))
+}
+
+# Function to analyze all scenarios
+analyze_all_scenarios <- function() {
+  # Create empty list to store results
+  all_results <- list()
+  
+  # Define all scenario lists with proper R naming
+  scenario_lists <- list(
+    "RCP2.6" = rcp26_files,
+    "RCP6.0" = rcp60_files,
+    "SSP1_2.6" = ssp126_files,
+    "SSP3_7.0" = ssp370_files,
+    "SSP5_8.5" = ssp585_files
+  )
+  
+  # Years to analyze
+  years <- c(2030, 2050, 2080)
+  
+  # Analyze each scenario
+  for(scenario_name in names(scenario_lists)) {
+    scenario_files <- scenario_lists[[scenario_name]]
+    
+    for(year in years) {
+      # Create scenario identifier for file matching
+      scenario_id <- switch(scenario_name,
+                          "RCP2.6" = "rcp26",
+                          "RCP6.0" = "rcp60",
+                          "SSP1_2.6" = "ssp126",
+                          "SSP3_7.0" = "ssp370",
+                          "SSP5_8.5" = "ssp585")
+      
+      # Get file paths for this year
+      noirr_path <- scenario_files[[paste0("noirr_", year, "_", scenario_id)]]
+      irr_path <- scenario_files[[paste0("irr_", year, "_", scenario_id)]]
+      
+      # Analyze this pair
+      results <- analyze_scenario_pair(noirr_path, irr_path, year, scenario_name)
+      
+      # Store results
+      all_results[[paste(scenario_name, year)]] <- results
+    }
+  }
+  
+  return(all_results)
+}
+
+# Create summary plots (display name corrections for plotting)
+create_summary_plots <- function(all_results) {
+  # Extract statistics into a data frame
+  stats_df <- do.call(rbind, lapply(all_results, function(x) x$statistics))
+  
+  # Convert scenario names back to display format
+  stats_df$scenario <- gsub("_", "-", stats_df$scenario)
+  
+  # Create mean FSI by scenario and year plot
+  ggplot(stats_df[stats_df$irrigation != "Difference",], 
+         aes(x=as.factor(year), y=mean, color=irrigation, group=irrigation)) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(~scenario) +
+    theme_minimal() +
+    labs(title="Mean FSI by Scenario, Year, and Irrigation Status",
+         x="Year",
+         y="Mean FSI")
+  
+  ggsave("fsi_trends.png", width=12, height=8)
+  
+  # Create difference plots for each year
+  years <- unique(stats_df$year)
+  for(year in years) {
+    # Get all difference rasters for this year
+    diff_rasters <- rast(lapply(all_results[grep(year, names(all_results))], 
+                               function(x) x$difference_raster))
+    names(diff_rasters) <- gsub("_", "-", 
+                               names(all_results)[grep(year, names(all_results))])
+    
+    # Plot
+    png(paste0("differences_", year, ".png"), width=1200, height=800)
+    plot(diff_rasters, main=paste("FSI Differences (Irrigated - Non-irrigated)", year))
+    dev.off()
+  }
+}
+
+# Main analysis workflow
+main_analysis <- function() {
+  # Run analysis
+  results <- analyze_all_scenarios()
+  
+  # Create plots
+  create_summary_plots(results)
+  
+  # Return results
+  return(results)
+}
+
+# Run the analysis
+results <- main_analysis()
+
+# Print summary statistics
+summary_stats <- do.call(rbind, lapply(results, function(x) x$statistics))
+write.csv(summary_stats, "fsi_summary_statistics.csv", row.names=FALSE)
+```
+
+```{r}
+
+# Define all scenario files
+rcp26_files <- list(
+  # 2030
+  noirr_2030_rcp26 = "FSI_2030_RCP26_noirr.tif",
+  irr_2030_rcp26 = "FSI_2030_RCP26_irr.tif",
+  # 2050  
+  noirr_2050_rcp26 = "FSI_2050_RCP26_noirr.tif",
+  irr_2050_rcp26 = "FSI_2050_RCP26_irr.tif",
+  # 2080
+  noirr_2080_rcp26 = "FSI_2080_RCP26_noirr.tif",
+  irr_2080_rcp26 = "FSI_2080_RCP26_irr.tif"
+)
+
+rcp60_files <- list(
+  # 2030
+  noirr_2030_rcp60 = "FSI_2030_RCP60_noirr.tif",
+  irr_2030_rcp60 = "FSI_2030_RCP60_irr.tif",
+  # 2050
+  noirr_2050_rcp60 = "FSI_2050_RCP60_noirr.tif",
+  irr_2050_rcp60 = "FSI_2050_RCP60_irr.tif",
+  # 2080
+  noirr_2080_rcp60 = "FSI_2080_RCP60_noirr.tif",
+  irr_2080_rcp60 = "FSI_2080_RCP60_irr.tif"
+)
+
+ssp126_files <- list(
+  # 2030
+  noirr_2030_ssp126 = "FSI_2030_SSP1_26_noirr.tif",
+  irr_2030_ssp126 = "FSI_2030_SSP1_26_irr.tif",
+  # 2050
+  noirr_2050_ssp126 = "FSI_2050_SSP1_26_noirr.tif",
+  irr_2050_ssp126 = "FSI_2050_SSP1_26_irr.tif",
+  # 2080
+  noirr_2080_ssp126 = "FSI_2080_SSP1_26_noirr.tif",
+  irr_2080_ssp126 = "FSI_2080_SSP1_26_irr.tif"
+)
+
+ssp370_files <- list(
+  # 2030
+  noirr_2030_ssp370 = "FSI_2030_SSP3_70_noirr.tif",
+  irr_2030_ssp370 = "FSI_2030_SSP3_70_irr.tif",
+  # 2050
+  noirr_2050_ssp370 = "FSI_2050_SSP3_70_noirr.tif",
+  irr_2050_ssp370 = "FSI_2050_SSP3_70_irr.tif",
+  # 2080
+  noirr_2080_ssp370 = "FSI_2080_SSP3_70_noirr.tif",
+  irr_2080_ssp370 = "FSI_2080_SSP3_70_irr.tif"
+)
+
+ssp585_files <- list(
+  # 2030
+  noirr_2030_ssp585 = "FSI_2030_SSP5_85_noirr.tif",
+  irr_2030_ssp585 = "FSI_2030_SSP5_85_irr.tif",
+  # 2050
+  noirr_2050_ssp585 = "FSI_2050_SSP5_85_noirr.tif",
+  irr_2050_ssp585 = "FSI_2050_SSP5_85_irr.tif",
+  # 2080
+  noirr_2080_ssp585 = "FSI_2080_SSP5_85_noirr.tif",
+  irr_2080_ssp585 = "FSI_2080_SSP5_85_irr.tif"
+)
+
+# Function to create comparison plots for a specific year
+create_year_comparison <- function(scenario_lists, year) {
+  # Create empty list for rasters
+  rasters_list <- list()
+  
+  # Read all rasters for this year
+  for(scenario_name in names(scenario_lists)) {
+    scenario_files <- scenario_lists[[scenario_name]]
+    scenario_id <- switch(scenario_name,
+                         "RCP2.6" = "rcp26",
+                         "RCP6.0" = "rcp60",
+                         "SSP1_2.6" = "ssp126",
+                         "SSP3_7.0" = "ssp370",
+                         "SSP5_8.5" = "ssp585")
+    
+    # Get file paths
+    noirr_path <- scenario_files[[paste0("noirr_", year, "_", scenario_id)]]
+    irr_path <- scenario_files[[paste0("irr_", year, "_", scenario_id)]]
+    
+    # Read and store rasters
+    rasters_list[[paste0(scenario_name, "_noirr")]] <- rast(noirr_path)
+    rasters_list[[paste0(scenario_name, "_irr")]] <- rast(irr_path)
+  }
+  
+  # Create multi-panel plot
+  par(mfrow=c(2, 5), mar=c(1,1,2,2))
+  
+  # Plot non-irrigated scenarios
+  for(scenario_name in names(scenario_lists)) {
+    plot(rasters_list[[paste0(scenario_name, "_noirr")]], 
+         main=paste("Non-irrigated", gsub("_", "-", scenario_name)),
+         col=viridis(100))
+  }
+  
+  # Plot irrigated scenarios
+  for(scenario_name in names(scenario_lists)) {
+    plot(rasters_list[[paste0(scenario_name, "_irr")]], 
+         main=paste("Irrigated", gsub("_", "-", scenario_name)),
+         col=viridis(100))
+  }
+  
+  # Reset plot parameters
+  par(mfrow=c(1,1))
+  
+  # Return rasters for further analysis
+  return(rasters_list)
+}
+
+# Function to create difference plots
+create_difference_plots <- function(rasters_list, scenario_lists, year) {
+  # Calculate differences
+  diff_list <- list()
+  
+  for(scenario_name in names(scenario_lists)) {
+    irr_rast <- rasters_list[[paste0(scenario_name, "_irr")]]
+    noirr_rast <- rasters_list[[paste0(scenario_name, "_noirr")]]
+    diff_list[[scenario_name]] <- irr_rast - noirr_rast
+  }
+  
+  # Create multi-panel difference plot
+  par(mfrow=c(2,3), mar=c(1,1,2,2))
+  
+  # Custom diverging color palette
+  cols <- colorRampPalette(c("red", "white", "blue"))(100)
+  
+  for(scenario_name in names(diff_list)) {
+    plot(diff_list[[scenario_name]], 
+         main=paste("Difference", gsub("_", "-", scenario_name)),
+         col=cols)
+  }
+  
+  # Reset plot parameters
+  par(mfrow=c(1,1))
+  
+  return(diff_list)
+}
+
+# Function to create statistical summary plots
+create_summary_plots <- function(rasters_list) {
+  # Extract statistics
+  stats_df <- data.frame()
+  
+  for(name in names(rasters_list)) {
+    scenario <- gsub("_(irr|noirr)$", "", name)
+    irrigation <- ifelse(grepl("_irr$", name), "Irrigated", "Non-irrigated")
+    
+    # Calculate statistics
+    mean_val <- global(rasters_list[[name]], "mean", na.rm=TRUE)[[1]]
+    sd_val <- global(rasters_list[[name]], "sd", na.rm=TRUE)[[1]]
+    
+    stats_df <- rbind(stats_df, data.frame(
+      scenario = gsub("_", "-", scenario),
+      irrigation = irrigation,
+      mean = mean_val,
+      sd = sd_val
+    ))
+  }
+  
+  # Create summary plot
+  p1 <- ggplot(stats_df, aes(x=scenario, y=mean, fill=irrigation)) +
+    geom_bar(stat="identity", position="dodge") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    labs(title="Mean FSI by Scenario and Irrigation Status",
+         x="Scenario",
+         y="Mean FSI")
+  
+  # Create error bar plot
+  p2 <- ggplot(stats_df, aes(x=scenario, y=mean, color=irrigation)) +
+    geom_point(position=position_dodge(width=0.5)) +
+    geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), 
+                  position=position_dodge(width=0.5), width=0.2) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    labs(title="FSI with Standard Deviation",
+         x="Scenario",
+         y="FSI Value")
+  
+  # Combine plots
+  combined_plot <- p1 / p2
+  
+  return(combined_plot)
+}
+
+# Main visualization workflow
+main_visualization <- function(year=2050) {
+  # Define scenario lists
+  scenario_lists <- list(
+    "RCP2.6" = rcp26_files,
+    "RCP6.0" = rcp60_files,
+    "SSP1_2.6" = ssp126_files,
+    "SSP3_7.0" = ssp370_files,
+    "SSP5_8.5" = ssp585_files
+  )
+  
+  # Create comparison plots
+  rasters <- create_year_comparison(scenario_lists, year)
+  
+  # Create difference plots
+  differences <- create_difference_plots(rasters, scenario_lists, year)
+  
+  # Create and save summary plots
+  summary_plot <- create_summary_plots(rasters)
+  ggsave(paste0("summary_plots_", year, ".png"), 
+         summary_plot, 
+         width=12, height=10)
+  
+  return(list(
+    rasters = rasters,
+    differences = differences,
+    summary_plot = summary_plot
+  ))
+}
+
+# Run visualization for each year
+results_2030 <- main_visualization(2030)
+results_2050 <- main_visualization(2050)
+results_2080 <- main_visualization(2080)
+```
+
+```{r}
+
+# Function to analyze 2020 scenario
+analyze_2020_scenario <- function() {
+  # Read the rasters
+  noirr <- rast("FSI_2020_RCP26_noirr.tif")
+  irr <- rast("FSI_2020_RCP26_irr.tif")
+  
+  # Calculate difference
+  diff_rast <- irr - noirr
+  
+  # Calculate statistics
+  stats <- data.frame(
+    scenario = c("Non-irrigated", "Irrigated", "Difference"),
+    mean = c(global(noirr, "mean", na.rm=TRUE)[[1]],
+             global(irr, "mean", na.rm=TRUE)[[1]],
+             global(diff_rast, "mean", na.rm=TRUE)[[1]]),
+    sd = c(global(noirr, "sd", na.rm=TRUE)[[1]],
+           global(irr, "sd", na.rm=TRUE)[[1]],
+           global(diff_rast, "sd", na.rm=TRUE)[[1]])
+  )
+  
+  # Create plots
+  par(mfrow=c(2,2))
+  
+  # Plot original rasters
+  plot(noirr, main="2020 Non-irrigated FSI", col=viridis::viridis(100))
+  plot(irr, main="2020 Irrigated FSI", col=viridis::viridis(100))
+  
+  # Plot difference
+  # Create custom diverging color palette
+  cols <- colorRampPalette(c("red", "white", "blue"))(100)
+  plot(diff_rast, 
+       main="Difference (Irrigated - Non-irrigated)",
+       col=cols)
+  
+  # Histogram of differences
+  hist(values(diff_rast), 
+       main="Distribution of FSI Differences",
+       xlab="FSI Difference (Irrigated - Non-irrigated)",
+       breaks=50)
+  
+  # Reset plot parameters
+  par(mfrow=c(1,1))
+  
+  # Return results
+  return(list(
+    statistics = stats,
+    rasters = list(
+      noirr = noirr,
+      irr = irr,
+      diff = diff_rast
+    )
+  ))
+}
+
+# Run the analysis
+results_2020 <- analyze_2020_scenario()
+
+# Print statistics
+print("Summary Statistics:")
+print(results_2020$statistics)
+```
+Irrigation difference
+```{r}
+
+# Read the rasters and shapefile
+noirr <- rast("FSI_2020_RCP26_noirr.tif")
+irr <- rast("FSI_2020_RCP26_irr.tif")
+eth_boundary <- vect("gadm41_ETH_0.shp")
+
+# Calculate difference
+diff_rast <- irr - noirr
+
+# Create plot window with specific dimensions
+png("fsi_difference_2020_outlined.png", width=1200, height=800, res=150)
+
+# Set margins
+par(mar=c(4,4,2,4))
+
+# Plot difference map
+plot(diff_rast, 
+     main="Difference (Irrigated - Non-irrigated)",
+     col=c("red", "white", "blue"))
+
+# Add Ethiopia boundary
+plot(eth_boundary, 
+     add=TRUE, 
+     border="black", 
+     lwd=1.5)
+
+# Add legend
+legend("right", 
+       legend=c("-1", "0", "1"),
+       fill=c("red", "white", "blue"),
+       title="Difference",
+       bty="n")
+
+# Close the device
+dev.off()
+```
+
+Difference in differences
+```{r}
+# Function to prepare data for DiD analysis
+prepare_did_data <- function(baseline_noirr, baseline_irr, 
+                           endline_noirr, endline_irr) {
+  # Read rasters
+  base_noirr <- rast(baseline_noirr)
+  base_irr <- rast(baseline_irr)
+  end_noirr <- rast(endline_noirr)
+  end_irr <- rast(endline_irr)
+  
+  # Extract values
+  base_noirr_vals <- values(base_noirr)
+  base_irr_vals <- values(base_irr)
+  end_noirr_vals <- values(end_noirr)
+  end_irr_vals <- values(end_irr)
+  
+  # Create data frame
+  did_data <- data.frame(
+    fsi = c(base_noirr_vals, base_irr_vals, 
+            end_noirr_vals, end_irr_vals),
+    time = c(rep("baseline", length(base_noirr_vals) * 2),
+             rep("endline", length(end_noirr_vals) * 2)),
+    treatment = c(rep(c("non-irrigated", "irrigated"), 
+                     each = length(base_noirr_vals)),
+                 rep(c("non-irrigated", "irrigated"), 
+                     each = length(end_noirr_vals)))
+  )
+  
+  # Remove NA values
+  did_data <- did_data %>% 
+    drop_na() %>%
+    mutate(time_dummy = ifelse(time == "endline", 1, 0),
+           treatment_dummy = ifelse(treatment == "irrigated", 1, 0),
+           did = time_dummy * treatment_dummy)
+  
+  return(did_data)
+}
+
+# Function to run DiD analysis
+run_did_analysis <- function(did_data) {
+  # Run DiD regression
+  did_model <- lm(fsi ~ time_dummy + treatment_dummy + did, 
+                  data = did_data)
+  
+  # Get robust standard errors using sandwich package
+  robust_se <- coeftest(did_model, vcov = sandwich::vcovHC(did_model, type = "HC1"))
+  
+  # Create summary statistics
+  summary_stats <- did_data %>%
+    group_by(time, treatment) %>%
+    summarise(
+      mean_fsi = mean(fsi, na.rm = TRUE),
+      sd_fsi = sd(fsi, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"  
+    )
+  
+  # Calculate simple DiD
+  baseline_diff <- summary_stats %>%
+    filter(time == "baseline") %>%
+    summarise(diff = mean_fsi[treatment == "irrigated"] - 
+                     mean_fsi[treatment == "non-irrigated"])
+  
+  endline_diff <- summary_stats %>%
+    filter(time == "endline") %>%
+    summarise(diff = mean_fsi[treatment == "irrigated"] - 
+                     mean_fsi[treatment == "non-irrigated"])
+  
+  simple_did <- endline_diff$diff - baseline_diff$diff
+  
+  # Calculate mean values for each group and time period
+  means_table <- summary_stats %>%
+    select(time, treatment, mean_fsi) %>%
+    pivot_wider(names_from = c(time, treatment), 
+                values_from = mean_fsi)
+  
+  return(list(
+    model = did_model,
+    robust_se = robust_se,
+    summary_stats = summary_stats,
+    simple_did = simple_did,
+    means_table = means_table
+  ))
+}
+
+# Function to visualize DiD results
+plot_did_results <- function(did_data) {
+  # Create mean plot
+  did_plot <- did_data %>%
+    group_by(time, treatment) %>%
+    summarise(
+      mean_fsi = mean(fsi, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    ggplot(aes(x = time, y = mean_fsi, color = treatment, group = treatment)) +
+    geom_line(size = 1) +
+    geom_point(size = 3) +
+    theme_minimal() +
+    labs(title = "Difference-in-Differences Analysis of FSI",
+         subtitle = "Comparing Irrigated vs Non-irrigated Scenarios",
+         y = "Mean FSI",
+         x = "Time Period",
+         color = "Treatment Group") +
+    theme(legend.position = "bottom",
+          text = element_text(size = 12))
+  
+  return(did_plot)
+}
+
+# Main analysis workflow
+main_did_analysis <- function(baseline_year = "2020", endline_year = "2050") {
+  # Construct file paths
+  baseline_noirr <- paste0("FSI_", baseline_year, "_RCP26_noirr.tif")
+  baseline_irr <- paste0("FSI_", baseline_year, "_RCP26_irr.tif")
+  endline_noirr <- paste0("FSI_", endline_year, "_RCP26_noirr.tif")
+  endline_irr <- paste0("FSI_", endline_year, "_RCP26_irr.tif")
+  
+  # Prepare data
+  did_data <- prepare_did_data(baseline_noirr, baseline_irr, 
+                              endline_noirr, endline_irr)
+  
+  # Run analysis
+  results <- run_did_analysis(did_data)
+  
+  # Create plot
+  did_plot <- plot_did_results(did_data)
+  
+  # Save plot
+  ggsave("did_results.png", did_plot, width = 10, height = 6)
+  
+  # Print results
+  cat("\nDifference-in-Differences Analysis Results:\n")
+  cat("\nMean FSI Values:\n")
+  print(results$means_table)
+  cat("\nSimple DiD Estimate:", results$simple_did, "\n")
+  cat("\nRegression Results with Robust Standard Errors:\n")
+  print(results$robust_se)
+  
+  return(results)
+}
+
+# Run the analysis
+results <- main_did_analysis(baseline_year = "2020", endline_year = "2050")
+```
+
+
+
+```{r}
+# Plot combined temporal trends
+ggplot(summary_table, aes(x = Year, y = Morans_I, color = Scenario)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Temporal Trends in Spatial Autocorrelation",
+       y = "Moran's I") +
+  theme(legend.position = "bottom")
+
+# Save results
+write.csv(summary_table, "spatial_autocorrelation_summary.csv", row.names = FALSE)
+
+# Print summary statistics
+print("Global Spatial Autocorrelation Summary:")
+print(summary_table)
+
+# Example of accessing individual results
+# Access 2030 RCP2.6 results
+rcp26_2030_results <- all_spatial_results[["rcp26"]]
+print("RCP2.6 2030 Global Moran's I test results:")
+print(rcp26_2030_results$global_moran)
+
+# Save plots
+for(scenario in scenarios) {
+  spatial_results <- all_spatial_results[[scenario]]
+  ggsave(paste0("spatial_original_", scenario, ".png"), spatial_results$plots$original)
+  ggsave(paste0("spatial_local_", scenario, ".png"), spatial_results$plots$local)
+  ggsave(paste0("spatial_significance_", scenario, ".png"), spatial_results$plots$significance)
+}
+
+ggsave("temporal_trends.png", width = 10, height = 6)
+```
+
+
+```{r}
+
+# Load the population and FSI data
+eth_popn <- raster("Population_2020_5km.tif")
+fsi_map <- raster("FSI_2020_noirr_RCP26_irr.tif")
+
+# Load Ethiopia zones (admin level 2)
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+eth_zones <- st_transform(eth_zones, crs(eth_popn))
+
+# Get Ethiopia extent and mask population data
+ethiopia_extent <- extent(eth_zones)
+ethiopia_popn_masked <- crop(eth_popn, ethiopia_extent)
+ethiopia_popn_masked <- mask(ethiopia_popn_masked, eth_zones)
+
+# Create risk mask from FSI map (assuming 0 indicates food insecurity)
+risk_mask <- fsi_map
+risk_mask[risk_mask == 1] <- 0  # food secure areas become 0
+risk_mask[risk_mask == 0] <- 1  # food insecure areas become 1
+
+# Calculate population at risk
+high_risk_pop <- ethiopia_popn_masked * risk_mask
+high_risk_pop[high_risk_pop == 0] <- NA
+
+# Calculate zonal statistics
+eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+
+# Create risk categories
+Risk_tier <- c("<1.0%", "1.0-9.9%", "10.0-19.9%", "20.0-49.9%", "50.0% & above")
+
+eth_zones$AtRiskCat <- NA
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 1] <- 1
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 1 & eth_zones$AtRisk_percent < 10] <- 2
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 10 & eth_zones$AtRisk_percent < 20] <- 3
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 50] <- 4
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 50 & eth_zones$AtRisk_percent <= 100] <- 5
+
+# Create the visualization
+map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk of\nFood Insecurity [%]", 
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"), 
+            labels = Risk_tier) +
+    tm_borders(col = "black") +
+    tm_scale_bar(position = c(0.02, 0.02), text.size = 1) +
+    tm_compass(north = 0, type = 'arrow', position = c('right', 'top'), text.size = 0.9) +
+    tm_layout(frame = FALSE, 
+             legend.outside = TRUE,
+             main.title = "Ethiopia: Population at Risk of Food Insecurity by Zone (2020)",
+             main.title.size = 1)
+
+# Save the map
+tmap_save(map, filename = "ethiopia_food_insecurity_risk_by_zone.png")
+
+# Print summary statistics
+print("Summary Statistics by Zone:")
+summary_stats <- eth_zones %>%
+    select(total_population, risk_population, AtRisk_percent) %>%
+    arrange(desc(AtRisk_percent))
+
+print(summary_stats)
+```
+
+```{r}
+
+# Load the data
+eth_popn <- raster("Population_2020_5km.tif")
+fsi_map <- raster("FSI_2020_noirr_RCP26_irr.tif")
+
+# Load and set CRS for Ethiopia boundary
+eth_border <- st_read("gadm41_ETH_0.shp")
+# Set the CRS to WGS 84 (EPSG:4326) which is typically used for GADM data
+eth_border <- st_set_crs(eth_border, 4326)
+
+# Transform Ethiopia border to match population raster's projection
+eth_border <- st_transform(eth_border, crs(eth_popn))
+
+# Ensure rasters are in the same projection (using compareCRS instead of direct comparison)
+if (!compareCRS(crs(fsi_map), crs(eth_popn))) {
+    fsi_map <- projectRaster(fsi_map, eth_popn)
+}
+
+# Mask both rasters to Ethiopia boundary
+eth_extent <- st_bbox(eth_border)
+eth_popn <- crop(eth_popn, eth_extent)
+eth_popn <- mask(eth_popn, eth_border)
+fsi_map <- crop(fsi_map, eth_extent)
+fsi_map <- mask(fsi_map, eth_border)
+
+# Create population at risk layer
+# Since FSI map has 0 for food insecure areas, we need to invert it to get risk areas
+risk_mask <- fsi_map
+risk_mask[risk_mask == 1] <- 0  # food secure areas become 0
+risk_mask[risk_mask == 0] <- 1  # food insecure areas become 1
+
+# Calculate population at risk
+pop_at_risk <- eth_popn * risk_mask
+pop_at_risk[pop_at_risk == 0] <- NA
+
+# Create the visualization
+map <- tm_shape(pop_at_risk) +
+    tm_raster(style = "fisher", 
+              title = "Population at Risk\nof Food Insecurity",
+              palette = "Reds",
+              n = 5) +
+    tm_shape(eth_border) +
+    tm_borders(col = "black", lwd = 1.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = "Ethiopia: Population at Risk of Food Insecurity (2020)",
+              main.title.size = 1)
+
+# Save the map
+tmap_save(map, filename = "ethiopia_food_insecurity_risk.png")
+
+# Calculate total population at risk
+total_pop <- cellStats(eth_popn, 'sum')
+total_at_risk <- cellStats(pop_at_risk, 'sum', na.rm = TRUE)
+risk_percentage <- (total_at_risk/total_pop) * 100
+
+print(paste0("Total population: ", format(total_pop, big.mark=",")))
+print(paste0("Population at risk: ", format(total_at_risk, big.mark=",")))
+print(paste0("Percentage at risk: ", round(risk_percentage, 1), "%"))
+```
+
+```{r}
+
+# Load the data
+eth_popn <- raster("Population_2020_5km.tif")
+fsi_map <- raster("FSI_2020_noirr_RCP26_irr.tif")
+
+# First, let's check the actual values in the FSI map
+print("Unique values in FSI map:")
+print(unique(fsi_map[]))
+
+# Load Ethiopia zones
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+eth_zones <- st_transform(eth_zones, crs(eth_popn))
+
+# Get Ethiopia extent and mask population data
+ethiopia_extent <- extent(eth_zones)
+ethiopia_popn_masked <- crop(eth_popn, ethiopia_extent)
+ethiopia_popn_masked <- mask(ethiopia_popn_masked, eth_zones)
+fsi_masked <- crop(fsi_map, ethiopia_extent)
+fsi_masked <- mask(fsi_map, eth_zones)
+
+# Create risk mask - we need to check what values represent food insecurity
+# Assuming FSI values are continuous between 0 and 1, where higher values = more insecurity
+risk_mask <- fsi_masked
+# Let's use a threshold approach instead of binary
+threshold <- mean(risk_mask[], na.rm = TRUE) 
+risk_mask <- (risk_mask - minValue(risk_mask)) / (maxValue(risk_mask) - minValue(risk_mask))
+
+# Calculate population at risk (weighted by FSI value)
+high_risk_pop <- ethiopia_popn_masked * risk_mask
+
+# Calculate zonal statistics
+eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+
+# Let's print the range of percentages to help set appropriate breaks
+print("Range of risk percentages:")
+print(summary(eth_zones$AtRisk_percent))
+
+# Create risk categories with appropriate breaks based on the actual distribution
+Risk_tier <- c("<20%", "20-40%", "40-60%", "60-80%", ">80%")
+
+eth_zones$AtRiskCat <- NA
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 20] <- 1
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 40] <- 2
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 40 & eth_zones$AtRisk_percent < 60] <- 3
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 60 & eth_zones$AtRisk_percent < 80] <- 4
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 80] <- 5
+
+# Create the visualization
+map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk [%]",
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"),
+            labels = Risk_tier) +
+    tm_borders(col = "black", lwd = 0.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(type = "arrow", position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = "Ethiopia: Population at Risk of Food Insecurity by Zone (2020)",
+              main.title.size = 1)
+
+# Save the map
+tmap_save(map, filename = "ethiopia_food_insecurity_risk_by_zone.png")
+
+# Print summary statistics
+print("Summary Statistics by Zone:")
+summary_stats <- eth_zones %>%
+    st_drop_geometry() %>%
+    select(total_population, risk_population, AtRisk_percent, AtRiskCat) %>%
+    arrange(desc(AtRisk_percent))
+
+print(summary(summary_stats))
+```
+
+Population at risk
+```{r}
+
+
+# Load the data
+eth_popn <- raster("Population_2020_5km.tif")
+fsi_map <- raster("FSI_2020_noirr_RCP26_irr.tif")
+
+# Invert FSI values (1 becomes 0 and 0 becomes 1)
+fsi_inverted <- 1 - fsi_map
+
+# Load Ethiopia zones
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+eth_zones <- st_transform(eth_zones, crs(eth_popn))
+
+# Get Ethiopia extent and mask population data
+ethiopia_extent <- extent(eth_zones)
+ethiopia_popn_masked <- crop(eth_popn, ethiopia_extent)
+ethiopia_popn_masked <- mask(ethiopia_popn_masked, eth_zones)
+fsi_masked <- crop(fsi_inverted, ethiopia_extent)
+fsi_masked <- mask(fsi_masked, eth_zones)
+
+# Calculate population at risk using inverted FSI
+high_risk_pop <- ethiopia_popn_masked * fsi_masked
+
+# Calculate zonal statistics
+eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+
+# Create risk categories
+Risk_tier <- c("<20%", "20-40%", "40-60%", "60-80%", ">80%")
+
+eth_zones$AtRiskCat <- NA
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 20] <- 1
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 40] <- 2
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 40 & eth_zones$AtRisk_percent < 60] <- 3
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 60 & eth_zones$AtRisk_percent < 80] <- 4
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 80] <- 5
+
+# Create the visualization
+map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk [%]",
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"),
+            labels = Risk_tier) +
+    tm_borders(col = "black", lwd = 0.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(type = "arrow", position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = "Ethiopia: Population at Risk of Food Insecurity by Zone (2020)",
+              main.title.size = 1)
+
+# Save the map
+tmap_save(map, filename = "ethiopia_food_insecurity_risk_by_zone.png")
+```
+
+```{r}
+
+
+# Load the data
+eth_popn <- raster("Population_2020_5km.tif")
+fsi_map <- raster("FSI_2020_RCP26_irr.tif")
+
+# Invert FSI values (1 becomes 0 and 0 becomes 1)
+fsi_inverted <- 1 - fsi_map
+
+# Load Ethiopia zones
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+eth_zones <- st_transform(eth_zones, crs(eth_popn))
+
+# Get Ethiopia extent and mask population data
+ethiopia_extent <- extent(eth_zones)
+ethiopia_popn_masked <- crop(eth_popn, ethiopia_extent)
+ethiopia_popn_masked <- mask(ethiopia_popn_masked, eth_zones)
+fsi_masked <- crop(fsi_inverted, ethiopia_extent)
+fsi_masked <- mask(fsi_masked, eth_zones)
+
+# Calculate population at risk using inverted FSI
+high_risk_pop <- ethiopia_popn_masked * fsi_masked
+
+# Calculate zonal statistics
+eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+
+# Create risk categories
+Risk_tier <- c("<20%", "20-40%", "40-60%", "60-80%", ">80%")
+
+eth_zones$AtRiskCat <- NA
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 20] <- 1
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 40] <- 2
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 40 & eth_zones$AtRisk_percent < 60] <- 3
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 60 & eth_zones$AtRisk_percent < 80] <- 4
+eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 80] <- 5
+
+# Create the visualization
+map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk [%]",
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"),
+            labels = Risk_tier) +
+    tm_borders(col = "black", lwd = 0.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(type = "arrow", position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = "Ethiopia: Population at Risk of Food Insecurity by Zone (2020) - Irrigated Scenario",
+              main.title.size = 1)
+
+# Save the map
+tmap_save(map, filename = "ethiopia_food_insecurity_risk_by_zone_irrigated.png")
+
+# Print summary statistics
+print("Summary Statistics by Zone (Irrigated Scenario):")
+summary_stats <- eth_zones %>%
+    st_drop_geometry() %>%
+    select(total_population, risk_population, AtRisk_percent, AtRiskCat) %>%
+    arrange(desc(AtRisk_percent))
+
+print(summary(summary_stats))
+```
+
+2030 population risk
+```{r}
+
+# List of files to process
+scenarios <- list(
+  "2030_RCP26_noirr" = "FSI_2030_RCP26_noirr.tif",
+  "2030_RCP26_irr" = "FSI_2030_RCP26_irr.tif",
+  "2030_RCP60_noirr" = "FSI_2030_RCP60_noirr.tif",
+  "2030_RCP60_irr" = "FSI_2030_RCP60_irr.tif",
+  "2030_SSP1_noirr" = "FSI_2030_SSP1_26_noirr.tif",
+  "2030_SSP1_irr" = "FSI_2030_SSP1_26_irr.tif",
+  "2030_SSP3_70_noirr" = "FSI_2030_SSP3_70_noirr.tif",
+  "2030_SSP3_70_irr" = "FSI_2030_SSP3_70_irr.tif",
+  "2030_SSP5_85_noirr" = "FSI_2030_SSP5_85_noirr.tif",
+  "2030_SSP5_85_irr" = "FSI_2030_SSP5_85_irr.tif"
+)
+
+# Load population data
+eth_popn <- raster("population_2030.tif")
+
+# Load Ethiopia zones
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+
+# Function to process each scenario
+process_scenario <- function(fsi_file, scenario_name, eth_popn, eth_zones) {
+  # Load and invert FSI values
+  fsi_map <- raster(fsi_file)
+  
+  # Resample population raster to match FSI raster resolution and extent
+  eth_popn_resampled <- resample(eth_popn, fsi_map, method = "bilinear")
+  
+  # Transform zones to match raster CRS
+  eth_zones <- st_transform(eth_zones, crs(fsi_map))
+  
+  # Invert FSI values (1 becomes 0 and 0 becomes 1)
+  fsi_inverted <- 1 - fsi_map
+  
+  # Mask population and FSI data
+  ethiopia_popn_masked <- mask(eth_popn_resampled, eth_zones)
+  fsi_masked <- mask(fsi_inverted, eth_zones)
+  
+  # Calculate population at risk
+  high_risk_pop <- ethiopia_popn_masked * fsi_masked
+  
+  # Calculate zonal statistics
+  eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+  eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+  eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+  
+  # Create risk categories
+  Risk_tier <- c("<20%", "20-40%", "40-60%", "60-80%", ">80%")
+  
+  eth_zones$AtRiskCat <- NA
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 20] <- 1
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 40] <- 2
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 40 & eth_zones$AtRisk_percent < 60] <- 3
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 60 & eth_zones$AtRisk_percent < 80] <- 4
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 80] <- 5
+  
+  # Create the visualization
+  map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk [%]",
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"),
+            labels = Risk_tier) +
+    tm_borders(col = "black", lwd = 0.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(type = "arrow", position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = paste("Ethiopia: Population at Risk of Food Insecurity", 
+                                 scenario_name),
+              main.title.size = 1)
+  
+  # Save the map with a unique filename
+  output_filename <- paste0("ethiopia_food_insecurity_risk_", 
+                            scenario_name, 
+                            ".png")
+  tmap_save(map, filename = output_filename)
+  
+  # Create a summary dataframe
+  summary_df <- data.frame(
+    Scenario = scenario_name,
+    Mean_AtRisk_Percent = mean(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Median_AtRisk_Percent = median(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Max_AtRisk_Percent = max(eth_zones$AtRisk_percent, na.rm = TRUE)
+  )
+  
+  return(summary_df)
+}
+
+# Initialize results dataframe
+results_summary <- data.frame()
+
+# Loop through scenarios
+for (scenario_name in names(scenarios)) {
+  scenario_result <- process_scenario(scenarios[[scenario_name]], 
+                                      scenario_name, 
+                                      eth_popn, 
+                                      eth_zones)
+  results_summary <- rbind(results_summary, scenario_result)
+}
+
+# Save summary results to CSV
+write.csv(results_summary, "food_insecurity_scenarios_summary_2030.csv", row.names = FALSE)
+
+# Print final summary
+print(results_summary)
+```
+
+2050 population risk
+```{r}
+
+# List of files to process
+scenarios <- list(
+  "2050_RCP26_noirr" = "FSI_2050_RCP26_noirr.tif",
+  "2050_RCP26_irr" = "FSI_2050_RCP26_irr.tif",
+  "2050_RCP60_noirr" = "FSI_2050_RCP60_noirr.tif",
+  "2050_RCP60_irr" = "FSI_2050_RCP60_irr.tif",
+  "2050_SSP1_noirr" = "FSI_2050_SSP1_26_noirr.tif",
+  "2050_SSP1_irr" = "FSI_2050_SSP1_26_irr.tif",
+  "2050_SSP3_70_noirr" = "FSI_2050_SSP3_70_noirr.tif",
+  "2050_SSP3_70_irr" = "FSI_2050_SSP3_70_irr.tif",
+  "2050_SSP5_85_noirr" = "FSI_2050_SSP5_85_noirr.tif",
+  "2050_SSP5_85_irr" = "FSI_2050_SSP5_85_irr.tif"
+)
+
+# Load population data
+eth_popn <- raster("population_2050.tif")
+
+# Load Ethiopia zones
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+
+# Function to process each scenario
+process_scenario <- function(fsi_file, scenario_name, eth_popn, eth_zones) {
+  # Load and invert FSI values
+  fsi_map <- raster(fsi_file)
+  
+  # Resample population raster to match FSI raster resolution and extent
+  eth_popn_resampled <- resample(eth_popn, fsi_map, method = "bilinear")
+  
+  # Transform zones to match raster CRS
+  eth_zones <- st_transform(eth_zones, crs(fsi_map))
+  
+  # Invert FSI values (1 becomes 0 and 0 becomes 1)
+  fsi_inverted <- 1 - fsi_map
+  
+  # Mask population and FSI data
+  ethiopia_popn_masked <- mask(eth_popn_resampled, eth_zones)
+  fsi_masked <- mask(fsi_inverted, eth_zones)
+  
+  # Calculate population at risk
+  high_risk_pop <- ethiopia_popn_masked * fsi_masked
+  
+  # Calculate zonal statistics
+  eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+  eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+  eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+  
+  # Create risk categories
+  Risk_tier <- c("<20%", "20-40%", "40-60%", "60-80%", ">80%")
+  
+  eth_zones$AtRiskCat <- NA
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 20] <- 1
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 40] <- 2
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 40 & eth_zones$AtRisk_percent < 60] <- 3
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 60 & eth_zones$AtRisk_percent < 80] <- 4
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 80] <- 5
+  
+  # Create the visualization
+  map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk [%]",
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"),
+            labels = Risk_tier) +
+    tm_borders(col = "black", lwd = 0.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(type = "arrow", position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = paste("Ethiopia: Population at Risk of Food Insecurity", 
+                                 scenario_name),
+              main.title.size = 1)
+  
+  # Save the map with a unique filename
+  output_filename <- paste0("ethiopia_food_insecurity_risk_", 
+                            scenario_name, 
+                            ".png")
+  tmap_save(map, filename = output_filename)
+  
+  # Create a summary dataframe
+  summary_df <- data.frame(
+    Scenario = scenario_name,
+    Mean_AtRisk_Percent = mean(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Median_AtRisk_Percent = median(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Max_AtRisk_Percent = max(eth_zones$AtRisk_percent, na.rm = TRUE)
+  )
+  
+  return(summary_df)
+}
+
+# Initialize results dataframe
+results_summary <- data.frame()
+
+# Loop through scenarios
+for (scenario_name in names(scenarios)) {
+  scenario_result <- process_scenario(scenarios[[scenario_name]], 
+                                      scenario_name, 
+                                      eth_popn, 
+                                      eth_zones)
+  results_summary <- rbind(results_summary, scenario_result)
+}
+
+# Save summary results to CSV
+write.csv(results_summary, "food_insecurity_scenarios_summary_2050.csv", row.names = FALSE)
+
+# Print final summary
+print(results_summary)
+```
+2080 population risk
+```{r}
+
+
+# List of files to process
+scenarios <- list(
+  "2080_RCP26_noirr" = "FSI_2080_RCP26_noirr.tif",
+  "2080_RCP26_irr" = "FSI_2080_RCP26_irr.tif",
+  "2080_RCP60_noirr" = "FSI_2080_RCP60_noirr.tif",
+  "2080_RCP60_irr" = "FSI_2080_RCP60_irr.tif",
+  "2080_SSP1_noirr" = "FSI_2080_SSP1_26_noirr.tif",
+  "2080_SSP1_irr" = "FSI_2080_SSP1_26_irr.tif",
+  "2080_SSP3_70_noirr" = "FSI_2080_SSP3_70_noirr.tif",
+  "2080_SSP3_70_irr" = "FSI_2080_SSP3_70_irr.tif",
+  "2080_SSP5_85_noirr" = "FSI_2080_SSP5_85_noirr.tif",
+  "2080_SSP5_85_irr" = "FSI_2080_SSP5_85_irr.tif"
+)
+
+# Load population data
+eth_popn <- raster("population_2080.tif")
+
+# Load Ethiopia zones
+eth_zones <- st_read("gadm41_ETH_2.shp")
+eth_zones <- st_set_crs(eth_zones, 4326)
+
+# Function to process each scenario
+process_scenario <- function(fsi_file, scenario_name, eth_popn, eth_zones) {
+  # Load and invert FSI values
+  fsi_map <- raster(fsi_file)
+  
+  # Resample population raster to match FSI raster resolution and extent
+  eth_popn_resampled <- resample(eth_popn, fsi_map, method = "bilinear")
+  
+  # Transform zones to match raster CRS
+  eth_zones <- st_transform(eth_zones, crs(fsi_map))
+  
+  # Invert FSI values (1 becomes 0 and 0 becomes 1)
+  fsi_inverted <- 1 - fsi_map
+  
+  # Mask population and FSI data
+  ethiopia_popn_masked <- mask(eth_popn_resampled, eth_zones)
+  fsi_masked <- mask(fsi_inverted, eth_zones)
+  
+  # Calculate population at risk
+  high_risk_pop <- ethiopia_popn_masked * fsi_masked
+  
+  # Calculate zonal statistics
+  eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+  eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+  eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+  
+  # Create risk categories
+  Risk_tier <- c("<20%", "20-40%", "40-60%", "60-80%", ">80%")
+  
+  eth_zones$AtRiskCat <- NA
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 0 & eth_zones$AtRisk_percent < 20] <- 1
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 20 & eth_zones$AtRisk_percent < 40] <- 2
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 40 & eth_zones$AtRisk_percent < 60] <- 3
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 60 & eth_zones$AtRisk_percent < 80] <- 4
+  eth_zones$AtRiskCat[eth_zones$AtRisk_percent >= 80] <- 5
+  
+  # Create the visualization
+  map <- tm_shape(eth_zones) + 
+    tm_fill("AtRiskCat", 
+            style = "cat", 
+            title = "Population at Risk [%]",
+            palette = c("white", "#ffffe5", "#fed976", "#fc4e2a", "#bd0026"),
+            labels = Risk_tier) +
+    tm_borders(col = "black", lwd = 0.5) +
+    tm_scale_bar(position = c("left", "bottom")) +
+    tm_compass(type = "arrow", position = c("right", "top")) +
+    tm_layout(frame = FALSE,
+              legend.outside = TRUE,
+              legend.title.size = 1,
+              main.title = paste("Ethiopia: Population at Risk of Food Insecurity", 
+                                 scenario_name),
+              main.title.size = 1)
+  
+  # Save the map with a unique filename
+  output_filename <- paste0("ethiopia_food_insecurity_risk_", 
+                            scenario_name, 
+                            ".png")
+  tmap_save(map, filename = output_filename)
+  
+  # Create a summary dataframe
+  summary_df <- data.frame(
+    Scenario = scenario_name,
+    Mean_AtRisk_Percent = mean(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Median_AtRisk_Percent = median(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Max_AtRisk_Percent = max(eth_zones$AtRisk_percent, na.rm = TRUE)
+  )
+  
+  return(summary_df)
+}
+
+# Initialize results dataframe
+results_summary <- data.frame()
+
+# Loop through scenarios
+for (scenario_name in names(scenarios)) {
+  scenario_result <- process_scenario(scenarios[[scenario_name]], 
+                                      scenario_name, 
+                                      eth_popn, 
+                                      eth_zones)
+  results_summary <- rbind(results_summary, scenario_result)
+}
+
+# Save summary results to CSV
+write.csv(results_summary, "food_insecurity_scenarios_summary_2080.csv", row.names = FALSE)
+
+# Print final summary
+print(results_summary)
+```
+
+```{r}
+
+# Function to process scenarios across years
+process_food_security_timeseries <- function(base_scenarios) {
+  # Prepare a list to store results
+  timeseries_results <- list()
+  
+  # Years to analyze
+  years <- c(2030, 2050, 2080)
+  
+  # Base scenario names
+  scenario_bases <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  
+  # Initialize results dataframe
+  comprehensive_results <- data.frame()
+  
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Process each scenario base
+  for (scenario_base in scenario_bases) {
+    # Prepare scenario results
+    scenario_results <- data.frame()
+    
+    # Process each year
+    for (year in years) {
+      # Construct filenames for irrigated and non-irrigated scenarios
+      irr_file <- paste0("FSI_", year, "_", scenario_base, "_irr.tif")
+      noirr_file <- paste0("FSI_", year, "_", scenario_base, "_noirr.tif")
+      
+      # Load population data for the year
+      eth_popn <- raster(paste0("population_", year, ".tif"))
+      
+      # Process irrigated scenario
+      irr_result <- process_single_scenario(irr_file, year, eth_popn, eth_zones, 
+                                            scenario_base, "Irrigated")
+      
+      # Process non-irrigated scenario
+      noirr_result <- process_single_scenario(noirr_file, year, eth_popn, eth_zones, 
+                                              scenario_base, "Non-Irrigated")
+      
+      # Combine results
+      scenario_results <- rbind(scenario_results, irr_result, noirr_result)
+    }
+    
+    # Perform time series analysis for the scenario
+    timeseries_results[[scenario_base]] <- analyze_timeseries(scenario_results)
+    
+    # Accumulate comprehensive results
+    comprehensive_results <- rbind(comprehensive_results, scenario_results)
+  }
+  
+  # Save comprehensive results
+  write.csv(comprehensive_results, "comprehensive_food_security_results.csv", row.names = FALSE)
+  
+  # Return results
+  return(list(
+    comprehensive_results = comprehensive_results,
+    timeseries_results = timeseries_results
+  ))
+}
+
+# Function to process a single scenario
+process_single_scenario <- function(fsi_file, year, eth_popn, eth_zones, scenario_base, irrigation_type) {
+  # Load and process FSI raster
+  fsi_map <- raster(fsi_file)
+  
+  # Resample population raster
+  eth_popn_resampled <- resample(eth_popn, fsi_map, method = "bilinear")
+  
+  # Transform zones
+  eth_zones <- st_transform(eth_zones, crs(fsi_map))
+  
+  # Invert FSI values
+  fsi_inverted <- 1 - fsi_map
+  
+  # Mask population and FSI data
+  ethiopia_popn_masked <- mask(eth_popn_resampled, eth_zones)
+  fsi_masked <- mask(fsi_inverted, eth_zones)
+  
+  # Calculate population at risk
+  high_risk_pop <- ethiopia_popn_masked * fsi_masked
+  
+  # Calculate zonal statistics
+  eth_zones$total_population <- exact_extract(ethiopia_popn_masked, eth_zones, 'sum')
+  eth_zones$risk_population <- exact_extract(high_risk_pop, eth_zones, 'sum')
+  eth_zones$AtRisk_percent <- (eth_zones$risk_population / eth_zones$total_population) * 100
+  
+  # Prepare result dataframe
+  result_df <- data.frame(
+    Year = year,
+    Scenario = scenario_base,
+    Irrigation = irrigation_type,
+    Mean_AtRisk_Percent = mean(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Median_AtRisk_Percent = median(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Max_AtRisk_Percent = max(eth_zones$AtRisk_percent, na.rm = TRUE),
+    Min_AtRisk_Percent = min(eth_zones$AtRisk_percent, na.rm = TRUE)
+  )
+  
+  return(result_df)
+}
+
+# Function to perform time series analysis
+analyze_timeseries <- function(scenario_results) {
+  # Separate irrigated and non-irrigated results
+  irr_results <- scenario_results[scenario_results$Irrigation == "Irrigated", ]
+  noirr_results <- scenario_results[scenario_results$Irrigation == "Non-Irrigated", ]
+  
+  # Time series analysis for mean at-risk percentage
+  irr_ts <- ts(irr_results$Mean_AtRisk_Percent, start = 2030, end = 2080, frequency = 1)
+  noirr_ts <- ts(noirr_results$Mean_AtRisk_Percent, start = 2030, end = 2080, frequency = 1)
+  
+  # Perform various time series analyses
+  results <- list(
+    Irrigated = list(
+      trend = tryCatch(
+        {
+          # Linear trend analysis
+          trend_model <- lm(irr_ts ~ time(irr_ts))
+          list(
+            slope = coef(trend_model)[2],
+            p_value = summary(trend_model)$coefficients[2,4]
+          )
+        },
+        error = function(e) list(slope = NA, p_value = NA)
+      ),
+      stationarity = tryCatch(
+        # Augmented Dickey-Fuller test for stationarity
+        adf.test(irr_ts),
+        error = function(e) list(statistic = NA, p.value = NA)
+      ),
+      forecast = tryCatch(
+        # Simple forecast
+        forecast(auto.arima(irr_ts), h = 30),
+        error = function(e) NA
+      )
+    ),
+    NonIrrigated = list(
+      trend = tryCatch(
+        {
+          trend_model <- lm(noirr_ts ~ time(noirr_ts))
+          list(
+            slope = coef(trend_model)[2],
+            p_value = summary(trend_model)$coefficients[2,4]
+          )
+        },
+        error = function(e) list(slope = NA, p_value = NA)
+      ),
+      stationarity = tryCatch(
+        adf.test(noirr_ts),
+        error = function(e) list(statistic = NA, p.value = NA)
+      ),
+      forecast = tryCatch(
+        forecast(auto.arima(noirr_ts), h = 30),
+        error = function(e) NA
+      )
+    )
+  )
+  
+  return(results)
+}
+
+# Run the analysis
+results <- process_food_security_timeseries()
+
+# Visualize results
+
+# Plot time series for each scenario
+plot_timeseries <- function(results) {
+  comprehensive_df <- results$comprehensive_results
+  
+  # Create a faceted plot
+  p <- ggplot(comprehensive_df, aes(x = Year, y = Mean_AtRisk_Percent, 
+                                    color = Irrigation, group = interaction(Scenario, Irrigation))) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(~ Scenario, scales = "free_y") +
+    labs(title = "Food Security Risk Across Scenarios (2030-2080)",
+         x = "Year",
+         y = "Mean Population at Risk [%]") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+  
+  # Save the plot
+  ggsave("food_security_timeseries.png", p, width = 10, height = 6)
+  
+  return(p)
+}
+
+# Generate visualization
+plot <- plot_timeseries(results)
+
+# Print key summary
+print(results$comprehensive_results)
+view(results$comprehensive_results)
+```
+
+Visualising change in food insecurity
+```{r}
+
+# Function to calculate food insecurity changes
+calculate_food_insecurity_changes <- function() {
+  # Years and scenarios to analyze
+  years <- c(2030, 2050, 2080)
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize results dataframe
+  change_results <- data.frame()
+  
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Initialize zone-level results
+      zone_changes <- eth_zones
+      
+      # Process each year pair
+      year_pairs <- list(
+        c(2030, 2050),
+        c(2050, 2080)
+      )
+      
+      for (pair in year_pairs) {
+        start_year <- pair[1]
+        end_year <- pair[2]
+        
+        # Construct filenames
+        start_file <- paste0("FSI_", start_year, "_", scenario, "_", irr, ".tif")
+        end_file <- paste0("FSI_", end_year, "_", scenario, "_", irr, ".tif")
+        start_pop_file <- paste0("population_", start_year, ".tif")
+        end_pop_file <- paste0("population_", end_year, ".tif")
+        
+        # Load rasters
+        start_fsi <- raster(start_file)
+        end_fsi <- raster(end_file)
+        start_pop <- raster(start_pop_file)
+        end_pop <- raster(end_pop_file)
+        
+        # Resample and mask
+        start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+        end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(zone_changes, crs(start_fsi))
+        
+        # Mask population and FSI
+        start_pop_masked <- mask(start_pop_resampled, zone_changes)
+        end_pop_masked <- mask(end_pop_resampled, zone_changes)
+        start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+        end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+        
+        # Calculate population at risk
+        start_high_risk_pop <- start_pop_masked * start_fsi_masked
+        end_high_risk_pop <- end_pop_masked * end_fsi_masked
+        
+        # Calculate zonal statistics
+        zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+        zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+        zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+        zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+        
+        # Calculate risk percentages
+        zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+        zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+        
+        # Calculate absolute and relative changes
+        zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+        zone_changes$risk_percent_change_relative <- 
+          (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+        
+        # Add metadata
+        zone_changes$scenario <- scenario
+        zone_changes$irrigation <- ifelse(irr == "irr", "Irrigated", "Non-Irrigated")
+        zone_changes$start_year <- start_year
+        zone_changes$end_year <- end_year
+        
+        # Combine results
+        change_results <- rbind(change_results, 
+                                zone_changes %>% 
+                                  st_drop_geometry() %>% 
+                                  select(scenario, irrigation, start_year, end_year, 
+                                         start_risk_percent, end_risk_percent, 
+                                         risk_percent_change, risk_percent_change_relative))
+      }
+    }
+  }
+  
+  return(change_results)
+}
+
+# Visualize food insecurity changes
+visualize_food_insecurity_changes <- function(change_results) {
+  # Prepare data for plotting
+  plot_data <- change_results %>%
+    group_by(scenario, irrigation, start_year, end_year) %>%
+    summarise(
+      mean_risk_change = mean(risk_percent_change, na.rm = TRUE),
+      median_risk_change = median(risk_percent_change, na.rm = TRUE),
+      mean_relative_change = mean(risk_percent_change_relative, na.rm = TRUE)
+    )
+  
+  # Create bar plot of mean risk changes
+  p1 <- ggplot(plot_data, 
+               aes(x = paste(start_year, "-", end_year), 
+                   y = mean_risk_change, 
+                   fill = interaction(scenario, irrigation))) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Mean Food Insecurity Risk Percentage Change by Scenario",
+         x = "Time Period",
+         y = "Mean Change in Risk Percentage",
+         fill = "Scenario") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_viridis(discrete = TRUE)
+  
+  # Create heatmap of relative changes
+  p2 <- ggplot(plot_data, 
+               aes(x = scenario, 
+                   y = paste(start_year, "-", end_year), 
+                   fill = mean_relative_change)) +
+    geom_tile() +
+    facet_wrap(~ irrigation) +
+    labs(title = "Relative Food Insecurity Risk Change",
+         x = "Scenario",
+         y = "Time Period",
+         fill = "Relative Change [%]") +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+                         midpoint = 0) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save plots
+  ggsave("food_insecurity_mean_changes.png", p1, width = 10, height = 6)
+  ggsave("food_insecurity_relative_changes.png", p2, width = 10, height = 6)
+  
+  return(list(mean_changes_plot = p1, relative_changes_plot = p2))
+}
+
+# Run the analysis
+change_results <- calculate_food_insecurity_changes()
+
+# Visualize results
+plots <- visualize_food_insecurity_changes(change_results)
+
+# Save results to CSV
+write.csv(change_results, "food_insecurity_changes.csv", row.names = FALSE)
+
+# Print summary statistics
+summary_stats <- change_results %>%
+  group_by(scenario, irrigation) %>%
+  summarise(
+    mean_absolute_change = mean(risk_percent_change, na.rm = TRUE),
+    median_absolute_change = median(risk_percent_change, na.rm = TRUE),
+    mean_relative_change = mean(risk_percent_change_relative, na.rm = TRUE)
+  )
+
+print(summary_stats)
+```
+Creating change maps
+```{r}
+
+
+# Function to create food insecurity change maps
+create_food_insecurity_change_maps <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  years <- c(2030, 2050, 2080)
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize list to store maps
+  change_maps <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Initialize zone-level results
+      zone_changes <- eth_zones
+      
+      # Process each year pair
+      year_pairs <- list(
+        c(2030, 2050),
+        c(2050, 2080)
+      )
+      
+      for (pair in year_pairs) {
+        start_year <- pair[1]
+        end_year <- pair[2]
+        
+        # Construct filenames
+        start_file <- paste0("FSI_", start_year, "_", scenario, "_", irr, ".tif")
+        end_file <- paste0("FSI_", end_year, "_", scenario, "_", irr, ".tif")
+        start_pop_file <- paste0("population_", start_year, ".tif")
+        end_pop_file <- paste0("population_", end_year, ".tif")
+        
+        # Load rasters
+        start_fsi <- raster(start_file)
+        end_fsi <- raster(end_file)
+        start_pop <- raster(start_pop_file)
+        end_pop <- raster(end_pop_file)
+        
+        # Resample and mask
+        start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+        end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(zone_changes, crs(start_fsi))
+        
+        # Mask population and FSI
+        start_pop_masked <- mask(start_pop_resampled, zone_changes)
+        end_pop_masked <- mask(end_pop_resampled, zone_changes)
+        start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+        end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+        
+        # Calculate population at risk
+        start_high_risk_pop <- start_pop_masked * start_fsi_masked
+        end_high_risk_pop <- end_pop_masked * end_fsi_masked
+        
+        # Calculate zonal statistics
+        zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+        zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+        zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+        zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+        
+        # Calculate risk percentages
+        zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+        zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+        
+        # Calculate absolute and relative changes
+        zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+        zone_changes$risk_percent_change_relative <- 
+          (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+        
+        # Create map
+        map_title <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                           start_year, "to", end_year)
+        
+        p <- ggplot(zone_changes) +
+          geom_sf(aes(fill = risk_percent_change), color = "white", linewidth = 0.1) +
+          scale_fill_gradient2(
+            low = "blue", 
+            mid = "white", 
+            high = "red", 
+            midpoint = 0,
+            name = "Risk % Change"
+          ) +
+          labs(
+            title = map_title,
+            subtitle = "Food Insecurity Risk Percentage Change"
+          ) +
+          theme_minimal() +
+          theme(legend.position = "right")
+        
+        # Store map
+        map_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                         start_year, "to", end_year)
+        change_maps[[map_key]] <- p
+        
+        # Save map
+        ggsave(paste0("food_insecurity_change_map_", 
+                      gsub(" ", "_", map_key), 
+                      ".png"), 
+               p, width = 10, height = 8)
+      }
+    }
+  }
+  
+  return(change_maps)
+}
+
+# Run the analysis
+change_maps <- create_food_insecurity_change_maps()
+
+# Print confirmation
+print("Maps have been generated and saved in the working directory.")
+```
+
+Adding 2030-2080 maps
+```{r}
+
+
+# Function to create food insecurity change maps
+create_food_insecurity_change_maps <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize list to store maps
+  change_maps <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Construct filenames
+      start_file <- paste0("FSI_2030_", scenario, "_", irr, ".tif")
+      end_file <- paste0("FSI_2080_", scenario, "_", irr, ".tif")
+      start_pop_file <- "population_2030.tif"
+      end_pop_file <- "population_2080.tif"
+      
+      # Load rasters
+      start_fsi <- raster(start_file)
+      end_fsi <- raster(end_file)
+      start_pop <- raster(start_pop_file)
+      end_pop <- raster(end_pop_file)
+      
+      # Resample and mask
+      start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+      end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+      
+      # Transform zones
+      zone_changes <- st_transform(eth_zones, crs(start_fsi))
+      
+      # Mask population and FSI
+      start_pop_masked <- mask(start_pop_resampled, zone_changes)
+      end_pop_masked <- mask(end_pop_resampled, zone_changes)
+      start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+      end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+      
+      # Calculate population at risk
+      start_high_risk_pop <- start_pop_masked * start_fsi_masked
+      end_high_risk_pop <- end_pop_masked * end_fsi_masked
+      
+      # Calculate zonal statistics
+      zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+      zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+      zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+      zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+      
+      # Calculate risk percentages
+      zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+      zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+      
+      # Calculate absolute and relative changes
+      zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+      zone_changes$risk_percent_change_relative <- 
+        (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+      
+      # Create map
+      map_title <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                         "2030 to 2080")
+      
+      p <- ggplot(zone_changes) +
+        geom_sf(aes(fill = risk_percent_change), color = "white", linewidth = 0.1) +
+        scale_fill_gradient2(
+          low = "blue", 
+          mid = "white", 
+          high = "red", 
+          midpoint = 0,
+          name = "Risk % Change"
+        ) +
+        labs(
+          title = map_title,
+          subtitle = "Food Insecurity Risk Percentage Change (2030-2080)"
+        ) +
+        theme_minimal() +
+        theme(legend.position = "right")
+      
+      # Store map
+      map_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                       "2030-2080")
+      change_maps[[map_key]] <- p
+      
+      # Save map
+      ggsave(paste0("food_insecurity_change_map_", 
+                    gsub(" ", "_", map_key), 
+                    ".png"), 
+             p, width = 10, height = 8)
+      
+      # Additional analysis for summary
+      summary_stats <- zone_changes %>%
+        summarise(
+          mean_change = mean(risk_percent_change, na.rm = TRUE),
+          median_change = median(risk_percent_change, na.rm = TRUE),
+          max_increase = max(risk_percent_change, na.rm = TRUE),
+          max_decrease = min(risk_percent_change, na.rm = TRUE)
+        )
+      
+      print(paste("Summary for", map_title))
+      print(summary_stats)
+    }
+  }
+  
+  return(change_maps)
+}
+
+# Run the analysis
+change_maps <- create_food_insecurity_change_maps()
+
+# Print confirmation
+print("Maps have been generated and saved in the working directory.")
+```
+
+Risk Trajectory Sankey Diagram
+```{r}
+# Debugging function to create Sankey diagrams
+create_food_insecurity_sankey_diagrams <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  years <- c(2030, 2050, 2080)
+  
+  # Initialize list to store Sankey diagrams
+  sankey_diagrams <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      tryCatch({
+        # Prepare results dataframe
+        risk_trajectories <- data.frame()
+        
+        # Process years
+        for (i in 1:(length(years)-1)) {
+          start_year <- years[i]
+          end_year <- years[i+1]
+          
+          # Construct filenames
+          start_file <- paste0("FSI_", start_year, "_", scenario, "_", irr, ".tif")
+          end_file <- paste0("FSI_", end_year, "_", scenario, "_", irr, ".tif")
+          start_pop_file <- paste0("population_", start_year, ".tif")
+          end_pop_file <- paste0("population_", end_year, ".tif")
+          
+          # Print filenames for debugging
+          cat("Processing:", start_file, "and", end_file, "\n")
+          
+          # Check if files exist
+          if (!file.exists(start_file) || !file.exists(end_file) || 
+              !file.exists(start_pop_file) || !file.exists(end_pop_file)) {
+            warning(paste("One or more files not found:", 
+                          start_file, end_file, start_pop_file, end_pop_file))
+            next
+          }
+          
+          # Load rasters
+          start_fsi <- raster(start_file)
+          end_fsi <- raster(end_file)
+          start_pop <- raster(start_pop_file)
+          end_pop <- raster(end_pop_file)
+          
+          # Resample and mask
+          start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+          end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+          
+          # Transform zones
+          zone_changes <- st_transform(eth_zones, crs(start_fsi))
+          
+          # Mask population and FSI
+          start_pop_masked <- mask(start_pop_resampled, zone_changes)
+          end_pop_masked <- mask(end_pop_resampled, zone_changes)
+          start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+          end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+          
+          # Calculate population at risk
+          start_high_risk_pop <- start_pop_masked * start_fsi_masked
+          end_high_risk_pop <- end_pop_masked * end_fsi_masked
+          
+          # Calculate zonal statistics
+          zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+          zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+          zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+          zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+          
+          # Calculate risk percentages
+          zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+          zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+          
+          # Categorize risk levels
+          zone_changes$start_risk_category <- cut(
+            zone_changes$start_risk_percent, 
+            breaks = c(-Inf, 20, 40, 60, 80, Inf), 
+            labels = c("Very Low", "Low", "Moderate", "High", "Very High")
+          )
+          zone_changes$end_risk_category <- cut(
+            zone_changes$end_risk_percent, 
+            breaks = c(-Inf, 20, 40, 60, 80, Inf), 
+            labels = c("Very Low", "Low", "Moderate", "High", "Very High")
+          )
+          
+          # Prepare transition data
+          transitions <- zone_changes %>%
+            st_drop_geometry() %>%
+            group_by(start_risk_category, end_risk_category) %>%
+            summarise(
+              population = sum(start_total_pop, na.rm = TRUE),
+              .groups = 'drop'
+            ) %>%
+            mutate(
+              scenario = scenario,
+              irrigation = ifelse(irr == "irr", "Irrigated", "Non-Irrigated"),
+              start_year = start_year,
+              end_year = end_year
+            )
+          
+          risk_trajectories <- rbind(risk_trajectories, transitions)
+        }
+        
+        # Prepare Sankey diagram data
+        sankey_data <- risk_trajectories %>%
+          mutate(
+            source = paste(start_year, start_risk_category),
+            target = paste(end_year, end_risk_category)
+          )
+        
+        # Create nodes
+        nodes <- data.frame(
+          name = unique(c(sankey_data$source, sankey_data$target))
+        )
+        nodes$id <- 0:(nrow(nodes) - 1)
+        
+        # Map nodes to links
+        links <- sankey_data %>%
+          left_join(nodes, by = c("source" = "name")) %>%
+          rename(source_id = id) %>%
+          left_join(nodes, by = c("target" = "name")) %>%
+          rename(target_id = id) %>%
+          select(source_id, target_id, population)
+        
+        # Ensure links are valid
+        if(nrow(links) == 0) {
+          warning(paste("No valid links for", scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated")))
+          next
+        }
+        
+        # Create Sankey diagram
+        sankey <- sankeyNetwork(
+          Links = links, 
+          Nodes = nodes, 
+          Source = "source_id", 
+          Target = "target_id", 
+          Value = "population", 
+          NodeID = "name",
+          units = "Population",
+          fontSize = 12,
+          nodeWidth = 30
+        )
+        
+        # Save Sankey diagram
+        diagram_filename <- paste0("food_insecurity_sankey_", 
+                                   scenario, 
+                                   "_", 
+                                   ifelse(irr == "irr", "irrigated", "non_irrigated"), 
+                                   ".html")
+        saveWidget(sankey, file = diagram_filename)
+        
+        # Store Sankey diagram
+        sankey_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"))
+        sankey_diagrams[[sankey_key]] <- sankey
+        
+      }, error = function(e) {
+        warning(paste("Error processing", scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), ":", e$message))
+      })
+    }
+  }
+  
+  return(sankey_diagrams)
+}
+
+# Run the analysis with error handling
+tryCatch({
+  sankey_diagrams <- create_food_insecurity_sankey_diagrams()
+  print("Sankey diagrams have been generated and saved in the working directory.")
+}, error = function(e) {
+  print(paste("An error occurred:", e$message))
+})
+```
+
+Risk Trajectory Sankey Diagram PNG'S with percentage labels
+```{r}
+# Function to create Sankey diagrams with percentage labels
+create_food_insecurity_sankey_diagrams <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  years <- c(2030, 2050, 2080)
+  
+  # Initialize list to store Sankey diagrams
+  sankey_diagrams <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      tryCatch({
+        # Prepare results dataframe
+        risk_trajectories <- data.frame()
+        
+        # Process years
+        for (i in 1:(length(years)-1)) {
+          start_year <- years[i]
+          end_year <- years[i+1]
+          
+          # Construct filenames
+          start_file <- paste0("FSI_", start_year, "_", scenario, "_", irr, ".tif")
+          end_file <- paste0("FSI_", end_year, "_", scenario, "_", irr, ".tif")
+          start_pop_file <- paste0("population_", start_year, ".tif")
+          end_pop_file <- paste0("population_", end_year, ".tif")
+          
+          # Load rasters
+          start_fsi <- raster(start_file)
+          end_fsi <- raster(end_file)
+          start_pop <- raster(start_pop_file)
+          end_pop <- raster(end_pop_file)
+          
+          # Resample and mask
+          start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+          end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+          
+          # Transform zones
+          zone_changes <- st_transform(eth_zones, crs(start_fsi))
+          
+          # Mask population and FSI
+          start_pop_masked <- mask(start_pop_resampled, zone_changes)
+          end_pop_masked <- mask(end_pop_resampled, zone_changes)
+          start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+          end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+          
+          # Calculate population at risk
+          start_high_risk_pop <- start_pop_masked * start_fsi_masked
+          end_high_risk_pop <- end_pop_masked * end_fsi_masked
+          
+          # Calculate zonal statistics
+          zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+          zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+          zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+          zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+          
+          # Calculate risk percentages
+          zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+          zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+          
+          # Categorize risk levels with percentage ranges
+          risk_breaks <- c(-Inf, 20, 40, 60, 80, Inf)
+          risk_labels <- c(
+            "Very Low (0-20%)", 
+            "Low (20-40%)", 
+            "Moderate (40-60%)", 
+            "High (60-80%)", 
+            "Very High (>80%)"
+          )
+          
+          zone_changes$start_risk_category <- cut(
+            zone_changes$start_risk_percent, 
+            breaks = risk_breaks, 
+            labels = risk_labels
+          )
+          zone_changes$end_risk_category <- cut(
+            zone_changes$end_risk_percent, 
+            breaks = risk_breaks, 
+            labels = risk_labels
+          )
+          
+          # Prepare transition data
+          transitions <- zone_changes %>%
+            st_drop_geometry() %>%
+            group_by(start_risk_category, end_risk_category) %>%
+            summarise(
+              population = sum(start_total_pop, na.rm = TRUE),
+              .groups = 'drop'
+            ) %>%
+            mutate(
+              scenario = scenario,
+              irrigation = ifelse(irr == "irr", "Irrigated", "Non-Irrigated"),
+              start_year = start_year,
+              end_year = end_year
+            )
+          
+          risk_trajectories <- rbind(risk_trajectories, transitions)
+        }
+        
+        # Prepare Sankey diagram data
+        sankey_data <- risk_trajectories %>%
+          mutate(
+            source = paste(start_year, start_risk_category),
+            target = paste(end_year, end_risk_category)
+          )
+        
+        # Create nodes
+        nodes <- data.frame(
+          name = unique(c(sankey_data$source, sankey_data$target))
+        )
+        nodes$id <- 0:(nrow(nodes) - 1)
+        
+        # Map nodes to links
+        links <- sankey_data %>%
+          left_join(nodes, by = c("source" = "name")) %>%
+          rename(source_id = id) %>%
+          left_join(nodes, by = c("target" = "name")) %>%
+          rename(target_id = id) %>%
+          select(source_id, target_id, population)
+        
+        # Ensure links are valid
+        if(nrow(links) == 0) {
+          warning(paste("No valid links for", scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated")))
+          next
+        }
+        
+        # Create Sankey diagram
+        sankey <- sankeyNetwork(
+          Links = links, 
+          Nodes = nodes, 
+          Source = "source_id", 
+          Target = "target_id", 
+          Value = "population", 
+          NodeID = "name",
+          units = "Population",
+          fontSize = 12,
+          nodeWidth = 30
+        )
+        
+        # Save Sankey diagram as HTML
+        html_filename <- paste0("food_insecurity_sankey_", 
+                                scenario, 
+                                "_", 
+                                ifelse(irr == "irr", "irrigated", "non_irrigated"), 
+                                "2.html")
+        saveWidget(sankey, file = html_filename)
+        
+        # Save as PNG (requires webshot)
+        png_filename <- paste0("food_insecurity_sankey_", 
+                               scenario, 
+                               "_", 
+                               ifelse(irr == "irr", "irrigated", "non_irrigated"), 
+                               ".png")
+        
+        # Use webshot to convert HTML to PNG
+        webshot(html_filename, 
+                file = png_filename, 
+                vwidth = 1200, 
+                vheight = 800, 
+                delay = 2)
+        
+        # Store Sankey diagram
+        sankey_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"))
+        sankey_diagrams[[sankey_key]] <- sankey
+        
+      }, error = function(e) {
+        warning(paste("Error processing", scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), ":", e$message))
+      })
+    }
+  }
+  
+  return(sankey_diagrams)
+}
+
+# Install webshot and phantomjs if not already installed
+if (!requireNamespace("webshot", quietly = TRUE)) {
+  install.packages("webshot")
+}
+if (!requireNamespace("phantomjs", quietly = TRUE)) {
+  webshot::install_phantomjs()
+}
+
+# Run the analysis with error handling
+tryCatch({
+  sankey_diagrams <- create_food_insecurity_sankey_diagrams()
+  print("Sankey diagrams have been generated and saved as HTML and PNG in the working directory.")
+}, error = function(e) {
+  print(paste("An error occurred:", e$message))
+})
+```
+3D Surface Landscape - Interractive
+```{r}
+
+# Function to create 3D surface landscape of food insecurity risk
+create_3d_food_insecurity_landscape <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  years <- c(2030, 2050, 2080)
+  
+  # Initialize list to store 3D visualizations
+  landscape_plots <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Prepare results dataframe
+      risk_landscape <- data.frame()
+      
+      # Process each year
+      for (year in years) {
+        # Construct filenames
+        fsi_file <- paste0("FSI_", year, "_", scenario, "_", irr, ".tif")
+        pop_file <- paste0("population_", year, ".tif")
+        
+        # Load rasters
+        fsi <- raster(fsi_file)
+        pop <- raster(pop_file)
+        
+        # Resample and mask
+        pop_resampled <- resample(pop, fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(eth_zones, crs(fsi))
+        
+        # Mask population and FSI
+        pop_masked <- mask(pop_resampled, zone_changes)
+        fsi_masked <- mask(1 - fsi, zone_changes)
+        
+        # Calculate population at risk
+        high_risk_pop <- pop_masked * fsi_masked
+        
+        # Calculate zonal statistics
+        zone_stats <- zone_changes
+        zone_stats$total_population <- exact_extract(pop_masked, zone_changes, 'sum')
+        zone_stats$risk_population <- exact_extract(high_risk_pop, zone_changes, 'sum')
+        zone_stats$risk_percent <- (zone_stats$risk_population / zone_stats$total_population) * 100
+        
+        # Prepare landscape data
+        landscape_data <- zone_stats %>%
+          st_centroid() %>%
+          st_coordinates() %>%
+          as.data.frame() %>%
+          mutate(
+            risk_percent = zone_stats$risk_percent,
+            year = year,
+            scenario = scenario,
+            irrigation = ifelse(irr == "irr", "Irrigated", "Non-Irrigated")
+          )
+        
+        risk_landscape <- rbind(risk_landscape, landscape_data)
+      }
+      
+      # Create 3D surface plot
+      p <- plot_ly(
+        risk_landscape,
+        x = ~X,
+        y = ~Y,
+        z = ~risk_percent,
+        color = ~year,
+        type = "scatter3d",
+        mode = "markers",
+        marker = list(
+          size = 5,
+          opacity = 0.7,
+          colorscale = "Viridis"
+        )
+      ) %>%
+        layout(
+          title = paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                        "Food Insecurity Risk Landscape"),
+          scene = list(
+            xaxis = list(title = "Longitude"),
+            yaxis = list(title = "Latitude"),
+            zaxis = list(title = "Risk Percentage")
+          )
+        )
+      
+      # Save interactive plot as HTML
+      plot_filename <- paste0("food_insecurity_3d_landscape_", 
+                               scenario, 
+                               "_", 
+                               ifelse(irr == "irr", "irrigated", "non_irrigated"), 
+                               ".html")
+      htmlwidgets::saveWidget(p, plot_filename)
+      
+      # Store plot
+      plot_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"))
+      landscape_plots[[plot_key]] <- p
+    }
+  }
+  
+  return(landscape_plots)
+}
+
+# Additional visualization with surface interpolation
+create_interpolated_3d_landscape <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  years <- c(2030, 2050, 2080)
+  
+  # Initialize list to store interpolated plots
+  interpolated_plots <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Prepare results dataframe
+      risk_landscape <- data.frame()
+      
+      # Process each year
+      for (year in years) {
+        # Construct filenames
+        fsi_file <- paste0("FSI_", year, "_", scenario, "_", irr, ".tif")
+        pop_file <- paste0("population_", year, ".tif")
+        
+        # Load rasters
+        fsi <- raster(fsi_file)
+        pop <- raster(pop_file)
+        
+        # Resample and mask
+        pop_resampled <- resample(pop, fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(eth_zones, crs(fsi))
+        
+        # Mask population and FSI
+        pop_masked <- mask(pop_resampled, zone_changes)
+        fsi_masked <- mask(1 - fsi, zone_changes)
+        
+        # Calculate population at risk
+        high_risk_pop <- pop_masked * fsi_masked
+        
+        # Calculate zonal statistics
+        zone_stats <- zone_changes
+        zone_stats$total_population <- exact_extract(pop_masked, zone_changes, 'sum')
+        zone_stats$risk_population <- exact_extract(high_risk_pop, zone_changes, 'sum')
+        zone_stats$risk_percent <- (zone_stats$risk_population / zone_stats$total_population) * 100
+        
+        # Prepare landscape data
+        landscape_data <- zone_stats %>%
+          st_centroid() %>%
+          st_coordinates() %>%
+          as.data.frame() %>%
+          mutate(
+            risk_percent = zone_stats$risk_percent,
+            year = year,
+            scenario = scenario,
+            irrigation = ifelse(irr == "irr", "Irrigated", "Non-Irrigated")
+          )
+        
+        risk_landscape <- rbind(risk_landscape, landscape_data)
+      }
+      
+      # Interpolate for each year
+      interpolated_surfaces <- lapply(years, function(y) {
+        year_data <- risk_landscape[risk_landscape$year == y, ]
+        interp_result <- with(year_data, interp(x = X, y = Y, z = risk_percent))
+        return(interp_result)
+      })
+      
+      # Create 3D surface plot with interpolation
+      p <- plot_ly() %>%
+        add_surface(
+          x = interpolated_surfaces[[1]]$x,
+          y = interpolated_surfaces[[1]]$y,
+          z = interpolated_surfaces[[1]]$z,
+          opacity = 0.7,
+          colorscale = "Viridis",
+          name = "2030"
+        ) %>%
+        add_surface(
+          x = interpolated_surfaces[[2]]$x,
+          y = interpolated_surfaces[[2]]$y,
+          z = interpolated_surfaces[[2]]$z,
+          opacity = 0.7,
+          colorscale = "Plasma",
+          name = "2050"
+        ) %>%
+        add_surface(
+          x = interpolated_surfaces[[3]]$x,
+          y = interpolated_surfaces[[3]]$y,
+          z = interpolated_surfaces[[3]]$z,
+          opacity = 0.7,
+          colorscale = "Inferno",
+          name = "2080"
+        ) %>%
+        layout(
+          title = paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                        "Interpolated Food Insecurity Risk Landscape"),
+          scene = list(
+            xaxis = list(title = "Longitude"),
+            yaxis = list(title = "Latitude"),
+            zaxis = list(title = "Risk Percentage")
+          )
+        )
+      
+      # Save interactive plot as HTML
+      plot_filename <- paste0("food_insecurity_interpolated_3d_landscape_", 
+                               scenario, 
+                               "_", 
+                               ifelse(irr == "irr", "irrigated", "non_irrigated"), 
+                               ".html")
+      htmlwidgets::saveWidget(p, plot_filename)
+      
+      # Store plot
+      plot_key <- paste(scenario, ifelse(irr == "irr", "Interpolated Irrigated", "Interpolated Non-Irrigated"))
+      interpolated_plots[[plot_key]] <- p
+    }
+  }
+  
+  return(interpolated_plots)
+}
+
+# Run the analyses
+tryCatch({
+  # Create point-based 3D landscapes
+  point_landscapes <- create_3d_food_insecurity_landscape()
+  
+  # Create interpolated surface landscapes
+  interpolated_landscapes <- create_interpolated_3d_landscape()
+  
+  print("3D food insecurity risk landscapes have been generated and saved as interactive HTML files.")
+}, error = function(e) {
+  print(paste("An error occurred:", e$message))
+})
+```
+
+Radial Convergence Visualization
+```{r}
+
+# Function to create Radial Convergence Visualization
+create_radial_convergence_visualization <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  years <- c(2030, 2050, 2080)
+  
+  # Initialize list to store visualizations
+  radial_plots <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Prepare results dataframe
+      risk_data <- data.frame()
+      
+      # Process each year
+      for (year in years) {
+        # Construct filenames
+        fsi_file <- paste0("FSI_", year, "_", scenario, "_", irr, ".tif")
+        pop_file <- paste0("population_", year, ".tif")
+        
+        # Load rasters
+        fsi <- raster(fsi_file)
+        pop <- raster(pop_file)
+        
+        # Resample and mask
+        pop_resampled <- resample(pop, fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(eth_zones, crs(fsi))
+        
+        # Mask population and FSI
+        pop_masked <- mask(pop_resampled, zone_changes)
+        fsi_masked <- mask(1 - fsi, zone_changes)
+        
+        # Calculate population at risk
+        high_risk_pop <- pop_masked * fsi_masked
+        
+        # Calculate zonal statistics
+        zone_stats <- zone_changes
+        zone_stats$total_population <- exact_extract(pop_masked, zone_changes, 'sum')
+        zone_stats$risk_population <- exact_extract(high_risk_pop, zone_changes, 'sum')
+        zone_stats$risk_percent <- (zone_stats$risk_population / zone_stats$total_population) * 100
+        
+        # Prepare radial data
+        radial_data <- zone_stats %>%
+          st_centroid() %>%
+          st_coordinates() %>%
+          as.data.frame() %>%
+          mutate(
+            risk_percent = zone_stats$risk_percent,
+            risk_category = cut(
+              risk_percent, 
+              breaks = c(-Inf, 20, 40, 60, 80, Inf), 
+              labels = c("Very Low", "Low", "Moderate", "High", "Very High")
+            ),
+            year = year,
+            scenario = scenario,
+            irrigation = ifelse(irr == "irr", "Irrigated", "Non-Irrigated")
+          )
+        
+        risk_data <- rbind(risk_data, radial_data)
+      }
+      
+      # Create radial convergence plot
+      p <- ggplot() +
+        # First ring (2030)
+        geom_circle(
+          data = risk_data[risk_data$year == 2030,],
+          aes(x0 = X, y0 = Y, r = 0.2, fill = risk_category),
+          alpha = 0.7
+        ) +
+        scale_fill_brewer(palette = "RdYlBu", direction = -1) +
+        
+        # Second ring (2050)
+        new_scale_fill() +
+        geom_circle(
+          data = risk_data[risk_data$year == 2050,],
+          aes(x0 = X, y0 = Y, r = 0.4, fill = risk_category),
+          alpha = 0.7
+        ) +
+        scale_fill_brewer(palette = "RdYlBu", direction = -1) +
+        
+        # Third ring (2080)
+        new_scale_fill() +
+        geom_circle(
+          data = risk_data[risk_data$year == 2080,],
+          aes(x0 = X, y0 = Y, r = 0.6, fill = risk_category),
+          alpha = 0.7
+        ) +
+        scale_fill_brewer(palette = "RdYlBu", direction = -1) +
+        
+        # Connecting lines between years
+        geom_segment(
+          data = risk_data,
+          aes(
+            x = X, y = Y, 
+            xend = X, yend = Y, 
+            color = risk_category
+          ),
+          alpha = 0.5
+        ) +
+        
+        # Aesthetic improvements
+        labs(
+          title = paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                        "Food Insecurity Risk Convergence"),
+          fill = "Risk Category",
+          color = "Risk Category"
+        ) +
+        theme_minimal() +
+        coord_fixed() +
+        theme(
+          legend.position = "right",
+          plot.title = element_text(hjust = 0.5)
+        )
+      
+      # Save plot
+      ggsave(
+        filename = paste0("food_insecurity_radial_convergence_", 
+                          scenario, 
+                          "_", 
+                          ifelse(irr == "irr", "irrigated", "non_irrigated"), 
+                          ".png"),
+        plot = p,
+        width = 10,
+        height = 10,
+        dpi = 300
+      )
+      
+      # Store plot
+      plot_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"))
+      radial_plots[[plot_key]] <- p
+    }
+  }
+  
+  return(radial_plots)
+}
+
+# Run the analysis
+tryCatch({
+  radial_visualizations <- create_radial_convergence_visualization()
+  print("Radial convergence visualizations have been generated and saved.")
+}, error = function(e) {
+  print(paste("An error occurred:", e$message))
+})
+```
+
+Change maps edited
+```{r}
+```
+
+Creating change maps
+```{r}
+
+
+# Function to create food insecurity change maps
+create_food_insecurity_change_maps <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Load country outline
+eth_country <- st_read("gadm41_ETH_0.shp")
+eth_country <- st_set_crs(eth_country, 4326)
+  
+  # Years and scenarios to analyze
+  years <- c(2030, 2050, 2080)
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize list to store maps
+  change_maps <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Initialize zone-level results
+      zone_changes <- eth_zones
+      
+      # Process each year pair
+      year_pairs <- list(
+        c(2030, 2050),
+        c(2050, 2080)
+      )
+      
+      for (pair in year_pairs) {
+        start_year <- pair[1]
+        end_year <- pair[2]
+        
+        # Construct filenames
+        start_file <- paste0("FSI_", start_year, "_", scenario, "_", irr, ".tif")
+        end_file <- paste0("FSI_", end_year, "_", scenario, "_", irr, ".tif")
+        start_pop_file <- paste0("population_", start_year, ".tif")
+        end_pop_file <- paste0("population_", end_year, ".tif")
+        
+        # Load rasters
+        start_fsi <- raster(start_file)
+        end_fsi <- raster(end_file)
+        start_pop <- raster(start_pop_file)
+        end_pop <- raster(end_pop_file)
+        
+        # Resample and mask
+        start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+        end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(zone_changes, crs(start_fsi))
+        
+        # Mask population and FSI
+        start_pop_masked <- mask(start_pop_resampled, zone_changes)
+        end_pop_masked <- mask(end_pop_resampled, zone_changes)
+        start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+        end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+        
+        # Calculate population at risk
+        start_high_risk_pop <- start_pop_masked * start_fsi_masked
+        end_high_risk_pop <- end_pop_masked * end_fsi_masked
+        
+        # Calculate zonal statistics
+        zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+        zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+        zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+        zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+        
+        # Calculate risk percentages
+        zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+        zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+        
+        # Calculate absolute and relative changes
+        zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+        zone_changes$risk_percent_change_relative <- 
+          (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+        
+eth_country_transformed <- st_transform(eth_country, crs(start_fsi))
+
+        # Create map
+        map_title <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                           start_year, "to", end_year)
+        
+        p <- ggplot() +
+  # Base layer - zones with risk changes
+  geom_sf(data = zone_changes, 
+          aes(fill = risk_percent_change), 
+          color = "black",  
+          linewidth = 0.2) +
+  # Country outline
+  geom_sf(data = eth_country_transformed,
+          fill = NA,
+          color = "black",
+          linewidth = 0.8) +
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white", 
+    high = "red", 
+    midpoint = 0,
+    name = "Risk % Change"
+  ) +
+  # Add scale bar
+  annotation_scale(
+    location = "bl",          
+    width_hint = 0.3,         
+    style = "ticks",          
+    pad_x = unit(0.4, "cm"), 
+    pad_y = unit(0.4, "cm")   
+  ) +
+  # Add north arrow
+  annotation_north_arrow(
+    location = "tr",          
+    style = north_arrow_fancy_orienteering,
+    pad_x = unit(0.4, "cm"),  
+    pad_y = unit(0.4, "cm")   
+  ) +
+  labs(
+    title = map_title,
+    subtitle = "Food Insecurity Risk Percentage Change"
+  ) +
+  theme_void() +            
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    plot.margin = margin(1, 1, 1, 1, "cm")
+  )
+        
+        # Store map
+        map_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                         start_year, "to", end_year)
+        change_maps[[map_key]] <- p
+        
+        # Save map
+        ggsave(paste0("food_insecurity_change_map_", 
+                      gsub(" ", "_", map_key), 
+                      ".png"), 
+               p, width = 10, height = 8)
+      }
+    }
+  }
+  
+  return(change_maps)
+}
+
+# Run the analysis
+change_maps <- create_food_insecurity_change_maps()
+
+# Print confirmation
+print("Maps have been generated and saved in the working directory.")
+```
+
+Adding 2030-2080 maps
+```{r}
+
+# Function to create food insecurity change maps
+create_food_insecurity_change_maps <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Load country outline
+eth_country <- st_read("gadm41_ETH_0.shp")
+eth_country <- st_set_crs(eth_country, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize list to store maps
+  change_maps <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Construct filenames
+      start_file <- paste0("FSI_2030_", scenario, "_", irr, ".tif")
+      end_file <- paste0("FSI_2080_", scenario, "_", irr, ".tif")
+      start_pop_file <- "population_2030.tif"
+      end_pop_file <- "population_2080.tif"
+      
+      # Load rasters
+      start_fsi <- raster(start_file)
+      end_fsi <- raster(end_file)
+      start_pop <- raster(start_pop_file)
+      end_pop <- raster(end_pop_file)
+      
+      # Resample and mask
+      start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+      end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+      
+      # Transform zones
+      zone_changes <- st_transform(eth_zones, crs(start_fsi))
+      
+      # Mask population and FSI
+      start_pop_masked <- mask(start_pop_resampled, zone_changes)
+      end_pop_masked <- mask(end_pop_resampled, zone_changes)
+      start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+      end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+      
+      # Calculate population at risk
+      start_high_risk_pop <- start_pop_masked * start_fsi_masked
+      end_high_risk_pop <- end_pop_masked * end_fsi_masked
+      
+      # Calculate zonal statistics
+      zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+      zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+      zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+      zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+      
+      # Calculate risk percentages
+      zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+      zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+      
+      # Calculate absolute and relative changes
+      zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+      zone_changes$risk_percent_change_relative <- 
+        (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+      
+eth_country_transformed <- st_transform(eth_country, crs(start_fsi))
+
+      # Create map
+      map_title <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                         "2030 to 2080")
+      
+      p <- ggplot() +
+  # Base layer - zones with risk changes
+  geom_sf(data = zone_changes, 
+          aes(fill = risk_percent_change), 
+          color = "black",  
+          linewidth = 0.2) +
+  # Country outline
+  geom_sf(data = eth_country_transformed,
+          fill = NA,
+          color = "black",
+          linewidth = 0.8) +
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white", 
+    high = "red", 
+    midpoint = 0,
+    name = "Risk % Change"
+  ) +
+  # Add scale bar
+  annotation_scale(
+    location = "bl",          
+    width_hint = 0.3,         
+    style = "ticks",          
+    pad_x = unit(0.4, "cm"),  
+    pad_y = unit(0.4, "cm")   
+  ) +
+  # Add north arrow
+  annotation_north_arrow(
+    location = "tr",          
+    style = north_arrow_fancy_orienteering,
+    pad_x = unit(0.4, "cm"),  
+    pad_y = unit(0.4, "cm")   
+  ) +
+  labs(
+    title = map_title,
+    subtitle = "Food Insecurity Risk Percentage Change (2030-2080)"
+  ) +
+  theme_void() +            
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    plot.margin = margin(1, 1, 1, 1, "cm")
+  )
+      
+      # Store map
+      map_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                       "2030-2080")
+      change_maps[[map_key]] <- p
+      
+      # Save map
+      ggsave(paste0("food_insecurity_change_map_", 
+                    gsub(" ", "_", map_key), 
+                    ".png"), 
+             p, width = 10, height = 8)
+      
+      # Additional analysis for summary
+      summary_stats <- zone_changes %>%
+        summarise(
+          mean_change = mean(risk_percent_change, na.rm = TRUE),
+          median_change = median(risk_percent_change, na.rm = TRUE),
+          max_increase = max(risk_percent_change, na.rm = TRUE),
+          max_decrease = min(risk_percent_change, na.rm = TRUE)
+        )
+      
+      print(paste("Summary for", map_title))
+      print(summary_stats)
+    }
+  }
+  
+  return(change_maps)
+}
+
+# Run the analysis
+change_maps <- create_food_insecurity_change_maps()
+
+# Print confirmation
+print("Maps have been generated and saved in the working directory.")
+```
+
+Edited change maps 2.0
+```{r}
+# Function to get scale limits based on scenario
+get_scale_limits <- function(scenario) {
+  if (grepl("^RCP", scenario)) {
+    return(c(-99, 99)) 
+  } else {
+    return(c(-35, 35))  
+  }
+}
+
+# Function to create food insecurity change maps
+create_food_insecurity_change_maps <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Load country outline
+  eth_country <- st_read("gadm41_ETH_0.shp")
+  eth_country <- st_set_crs(eth_country, 4326)
+  
+  # Years and scenarios to analyze
+  years <- c(2030, 2050, 2080)
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize list to store maps
+  change_maps <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Initialize zone-level results
+      zone_changes <- eth_zones
+      
+      # Process each year pair
+      year_pairs <- list(
+        c(2030, 2050),
+        c(2050, 2080)
+      )
+      
+      for (pair in year_pairs) {
+        start_year <- pair[1]
+        end_year <- pair[2]
+        
+        # Construct filenames
+        start_file <- paste0("FSI_", start_year, "_", scenario, "_", irr, ".tif")
+        end_file <- paste0("FSI_", end_year, "_", scenario, "_", irr, ".tif")
+        start_pop_file <- paste0("population_", start_year, ".tif")
+        end_pop_file <- paste0("population_", end_year, ".tif")
+        
+        # Load rasters
+        start_fsi <- raster(start_file)
+        end_fsi <- raster(end_file)
+        start_pop <- raster(start_pop_file)
+        end_pop <- raster(end_pop_file)
+        
+        # Resample and mask
+        start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+        end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+        
+        # Transform zones
+        zone_changes <- st_transform(zone_changes, crs(start_fsi))
+        
+        # Mask population and FSI
+        start_pop_masked <- mask(start_pop_resampled, zone_changes)
+        end_pop_masked <- mask(end_pop_resampled, zone_changes)
+        start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+        end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+        
+        # Calculate population at risk
+        start_high_risk_pop <- start_pop_masked * start_fsi_masked
+        end_high_risk_pop <- end_pop_masked * end_fsi_masked
+        
+        # Calculate zonal statistics
+        zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+        zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+        zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+        zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+        
+        # Calculate risk percentages
+        zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+        zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+        
+        # Calculate absolute and relative changes
+        zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+        zone_changes$risk_percent_change_relative <- 
+          (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+        
+        eth_country_transformed <- st_transform(eth_country, crs(start_fsi))
+        
+        # Get scale limits based on scenario
+        scale_limits <- get_scale_limits(scenario)
+        
+        # Create map
+        map_title <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                          start_year, "to", end_year)
+        
+        p <- ggplot() +
+          # Base layer - zones with risk changes
+          geom_sf(data = zone_changes, 
+                 aes(fill = risk_percent_change), 
+                 color = "black",
+                 linewidth = 0.2) +
+          # Country outline
+          geom_sf(data = eth_country_transformed,
+                 fill = NA,
+                 color = "black",
+                 linewidth = 0.8) +
+          scale_fill_gradientn(
+            colors = rev(brewer.pal(11, "RdYlBu")),
+            limits = scale_limits,
+            name = "Risk % Change",
+            guide = guide_colorbar(
+              direction = "horizontal",
+              label.position = "bottom",
+              title.position = "top",
+              barwidth = 15,
+              barheight = 1,
+              nbin = 11
+            )
+          ) +
+          # Add scale bar
+          annotation_scale(
+            location = "bl",          
+            width_hint = 0.3,         
+            style = "ticks",          
+            pad_x = unit(0.4, "cm"), 
+            pad_y = unit(0.4, "cm")   
+          ) +
+          # Add north arrow
+          annotation_north_arrow(
+            location = "tr",          
+            style = north_arrow_fancy_orienteering,
+            pad_x = unit(0.4, "cm"),  
+            pad_y = unit(0.4, "cm")   
+          ) +
+          labs(
+            title = map_title,
+            subtitle = "Food Insecurity Risk Percentage Change"
+          ) +
+          theme_void() +             
+          theme(
+            plot.title = element_text(size = 14, face = "bold"),
+            plot.subtitle = element_text(size = 12),
+            legend.position = "right",
+            legend.title = element_text(size = 10),
+            legend.text = element_text(size = 9),
+            plot.margin = margin(1, 1, 1, 1, "cm")
+          )
+        
+        # Store map
+        map_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                        start_year, "to", end_year)
+        change_maps[[map_key]] <- p
+        
+        # Save map
+        ggsave(paste0("food_insecurity_change_map_", 
+                     gsub(" ", "_", map_key), 
+                     ".png"), 
+               p, width = 10, height = 8, dpi = 300)
+      }
+    }
+  }
+  
+  return(change_maps)
+}
+
+# Run the analysis
+change_maps <- create_food_insecurity_change_maps()
+
+# Print confirmation
+print("Maps have been generated and saved in the working directory.")
+```
+
+Adding 2030-2080 maps
+```{r}
+
+# Function to get scale limits based on scenario
+get_scale_limits <- function(scenario) {
+  if (grepl("^RCP", scenario)) {
+    return(c(-99, 99))  # For RCP26 and RCP60
+  } else {
+    return(c(-35, 35))  # For SSP scenarios
+  }
+}
+
+# Function to create food insecurity change maps
+create_food_insecurity_change_maps <- function() {
+  # Load Ethiopia zones
+  eth_zones <- st_read("gadm41_ETH_2.shp")
+  eth_zones <- st_set_crs(eth_zones, 4326)
+  
+  # Load country outline
+eth_country <- st_read("gadm41_ETH_0.shp")
+eth_country <- st_set_crs(eth_country, 4326)
+  
+  # Years and scenarios to analyze
+  scenarios <- c("RCP26", "RCP60", "SSP1_26", "SSP3_70", "SSP5_85")
+  irrigation_types <- c("irr", "noirr")
+  
+  # Initialize list to store maps
+  change_maps <- list()
+  
+  # Process each scenario and irrigation type
+  for (scenario in scenarios) {
+    for (irr in irrigation_types) {
+      # Construct filenames
+      start_file <- paste0("FSI_2030_", scenario, "_", irr, ".tif")
+      end_file <- paste0("FSI_2080_", scenario, "_", irr, ".tif")
+      start_pop_file <- "population_2030.tif"
+      end_pop_file <- "population_2080.tif"
+      
+      # Load rasters
+      start_fsi <- raster(start_file)
+      end_fsi <- raster(end_file)
+      start_pop <- raster(start_pop_file)
+      end_pop <- raster(end_pop_file)
+      
+      # Resample and mask
+      start_pop_resampled <- resample(start_pop, start_fsi, method = "bilinear")
+      end_pop_resampled <- resample(end_pop, end_fsi, method = "bilinear")
+      
+      # Transform zones
+      zone_changes <- st_transform(eth_zones, crs(start_fsi))
+      
+      # Mask population and FSI
+      start_pop_masked <- mask(start_pop_resampled, zone_changes)
+      end_pop_masked <- mask(end_pop_resampled, zone_changes)
+      start_fsi_masked <- mask(1 - start_fsi, zone_changes)
+      end_fsi_masked <- mask(1 - end_fsi, zone_changes)
+      
+      # Calculate population at risk
+      start_high_risk_pop <- start_pop_masked * start_fsi_masked
+      end_high_risk_pop <- end_pop_masked * end_fsi_masked
+      
+      # Calculate zonal statistics
+      zone_changes$start_total_pop <- exact_extract(start_pop_masked, zone_changes, 'sum')
+      zone_changes$end_total_pop <- exact_extract(end_pop_masked, zone_changes, 'sum')
+      zone_changes$start_risk_pop <- exact_extract(start_high_risk_pop, zone_changes, 'sum')
+      zone_changes$end_risk_pop <- exact_extract(end_high_risk_pop, zone_changes, 'sum')
+      
+      # Calculate risk percentages
+      zone_changes$start_risk_percent <- (zone_changes$start_risk_pop / zone_changes$start_total_pop) * 100
+      zone_changes$end_risk_percent <- (zone_changes$end_risk_pop / zone_changes$end_total_pop) * 100
+      
+      # Calculate absolute and relative changes
+      zone_changes$risk_percent_change <- zone_changes$end_risk_percent - zone_changes$start_risk_percent
+      zone_changes$risk_percent_change_relative <- 
+        (zone_changes$end_risk_percent - zone_changes$start_risk_percent) / zone_changes$start_risk_percent * 100
+      
+eth_country_transformed <- st_transform(eth_country, crs(start_fsi))
+# Get scale limits based on scenario
+scale_limits <- get_scale_limits(scenario)
+      # Create map
+      map_title <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                         "2030 to 2080")
+      
+      p <- ggplot() +
+  # Base layer - zones with risk changes
+  geom_sf(data = zone_changes, 
+          aes(fill = risk_percent_change), 
+          color = "black",  
+          linewidth = 0.2) +
+  # Country outline
+  geom_sf(data = eth_country_transformed,
+          fill = NA,
+          color = "black",
+          linewidth = 0.8) +
+  scale_fill_gradientn(
+  colors = rev(brewer.pal(11, "RdYlBu")),
+  limits = scale_limits,
+  name = "Risk % Change"
+) +
+  # Add scale bar
+  annotation_scale(
+    location = "bl",          
+    width_hint = 0.3,         
+    style = "ticks",          
+    pad_x = unit(0.4, "cm"),  
+    pad_y = unit(0.4, "cm")   
+  ) +
+  # Add north arrow
+  annotation_north_arrow(
+    location = "tr",          
+    style = north_arrow_fancy_orienteering,
+    pad_x = unit(0.4, "cm"),  
+    pad_y = unit(0.4, "cm")   
+  ) +
+  labs(
+    title = map_title,
+    subtitle = "Food Insecurity Risk Percentage Change (2030-2080)"
+  ) +
+  theme_void() +            
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    plot.margin = margin(1, 1, 1, 1, "cm")
+  )
+      
+      # Store map
+      map_key <- paste(scenario, ifelse(irr == "irr", "Irrigated", "Non-Irrigated"), 
+                       "2030-2080")
+      change_maps[[map_key]] <- p
+      
+      # Save map
+      ggsave(paste0("food_insecurity_change_map_", 
+                    gsub(" ", "_", map_key), 
+                    ".png"), 
+             p, width = 10, height = 8)
+      
+      # Additional analysis for summary
+      summary_stats <- zone_changes %>%
+        summarise(
+          mean_change = mean(risk_percent_change, na.rm = TRUE),
+          median_change = median(risk_percent_change, na.rm = TRUE),
+          max_increase = max(risk_percent_change, na.rm = TRUE),
+          max_decrease = min(risk_percent_change, na.rm = TRUE)
+        )
+      
+      print(paste("Summary for", map_title))
+      print(summary_stats)
+    }
+  }
+  
+  return(change_maps)
+}
+
+# Run the analysis
+change_maps <- create_food_insecurity_change_maps()
+
+# Print confirmation
+print("Maps have been generated and saved in the working directory.")
+```

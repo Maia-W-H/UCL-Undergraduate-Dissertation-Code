@@ -1,0 +1,523 @@
+---
+title: "ND4_FILE_EXTRACTION"
+output: html_document
+date: "2025-04-23"
+---
+
+
+```{r}
+# clean memory and remove all objects in R
+rm(list = ls())
+gc()
+
+setwd("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ISIMPI")
+``` 
+
+```{r}
+# activate installed packages
+library("ncdf4")
+library("RColorBrewer")
+library("raster")
+library("sf")
+library("tmap")
+library("raster")
+library("sp")
+library("terra")
+```
+
+# Extracting wheat data from netcdf4 file
+```{r}
+# open netcdf4 file
+ncin <- nc_open("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ISIMPI/lpjml_gfdl-esm2m_ewembi_rcp26_2005soc_2005co2_yield-whe-firr_global_annual_2006_2099.nc4")
+
+# see details in netcdf4 file to identify key values and parameters for extracting the layers
+print(ncin)
+
+# we need the following:
+# 1. aet-whe-firr
+# 2. lon
+# 3. lat
+# 4. time
+
+# extract the values as a vector needed to convert netcdf at a raster object
+lon <- ncvar_get(ncin, "lon")
+lat <- ncvar_get(ncin, "lat")
+time <- ncvar_get(ncin, "time")
+```
+
+```{r}
+# create a reference table for the years using the time vector by aligning the values 345, 346... to the years 2006, 2007 and so on
+reftable <- as.data.frame(time)
+reftable$year <- 2005 + 1:nrow(reftable)
+View(reftable)
+
+# some important notes explained by Maia:
+# 1. year 2030 corresponds to 369 => use row value 25 to pull out this raster
+# 2. year 2050 corresponds to 389 => use row value 45 to pull out this raster
+# 3. year 2080 corresponds to 419 => use row value 75 to pull out this raster
+```
+
+```{r}
+# let pull out the variable yield-whe-firr
+yield_whe_firr <- ncvar_get(ncin, "yield-whe-firr")
+
+# this gives us 3-dimensional object (i.e., array) with the dimension of 720x360x94 (lon, lat, time)
+dim(yield_whe_firr)
+
+# we are going to clean the array for yield_whe_firr - the ocean/sea annoyingly has pixel values '1e+20' - convert them to `NA`
+fillvalue <- ncatt_get(ncin, "yield-whe-firr", "_FillValue")
+fillvalue
+
+# the conversion is performed here
+yield_whe_firr[yield_whe_firr == fillvalue$value] <- NA
+
+# Check the specific variable of interest (e.g., "yield-whe-firr")
+yield_var <- ncvar_get(ncin, "yield-whe-firr")
+yield_attrs <- ncatt_get(ncin, "yield-whe-firr") 
+# Print attributes
+print(yield_attrs)
+
+# closing netcdf4 file `ncin`
+nc_close(ncin)
+# remove from memory to free-up space
+rm(ncin)
+```
+
+# Geo-processing the extracted wheat data
+```{r}
+# Extract the following layers based on the following notes provided by Maia:
+# 1. year 2030 corresponds to 369 => use row value 25 to pull out this raster
+# 2. year 2050 corresponds to 389 => use row value 45 to pull out this raster
+# 3. year 2080 corresponds to 419 => use row value 75 to pull out this raster
+
+wheat_RCP26_irrig_2020 <- yield_whe_firr[,,15]
+wheat_RCP26_irrig_2030 <- yield_whe_firr[,,25]
+wheat_RCP26_irrig_2050 <- yield_whe_firr[,,45]
+wheat_RCP26_irrig_2080 <- yield_whe_firr[,,75]
+
+# the layers are apparently flipped and rotated in the wrong direction
+# one line of code for each layer transpose the broken layers using the t() function and min-max values from `lon` and `lat`. Project them using CRS 4326
+
+r_2020 <- raster(t(wheat_RCP26_irrig_2020), xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+r_2030 <- raster(t(wheat_RCP26_irrig_2030), xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+r_2050 <- raster(t(wheat_RCP26_irrig_2050), xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+r_2080 <- raster(t(wheat_RCP26_irrig_2080), xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+```
+
+```{r}
+# inspect images
+plot(r_2020, main = "Wheat RCP26 (Irrigation) 2020")
+plot(r_2030, main = "Wheat RCP26 (Irrigation) 2030")
+plot(r_2050, main = "Wheat RCP26 (Irrigation) 2050")
+plot(r_2080, main = "Wheat RCP26 (Irrigation) 2080")
+
+```
+
+```{r}
+# save as a raster for future reference
+writeRaster(r_2020, "Global_Wheat_RCP26_Irrigation_2020.tif", format="GTiff", overwrite = TRUE)
+writeRaster(r_2030, "Global_Wheat_RCP26_Irrigation_2030.tif", format="GTiff", overwrite = TRUE)
+writeRaster(r_2050, "Global_Wheat_RCP26_Irrigation_2050.tif", format="GTiff", overwrite = TRUE)
+writeRaster(r_2080, "Global_Wheat_RCP26_Irrigation_2080.tif", format="GTiff", overwrite = TRUE)
+
+# remove all objects in R to free up memory
+rm(list = ls())
+
+# Crop-Resample-Mask (aka 'Cookie-cut') wheat raster for Ethiopia
+
+# re-import raster layers 
+wheat_RCP26_irr_2020 <- raster("Global_Wheat_RCP26_Irrigation_2020.tif")
+wheat_RCP26_irr_2030 <- raster("Global_Wheat_RCP26_Irrigation_2030.tif")
+wheat_RCP26_irr_2050 <- raster("Global_Wheat_RCP26_Irrigation_2050.tif")
+wheat_RCP26_irr_2080 <- raster("Global_Wheat_RCP26_Irrigation_2080.tif")
+# the resolution of these raster are 0.4993056 x 0.4986111, which is approximately 60km-by-60km grid size which is incredibly coarse.
+# it should be re-sampled to a resolution of 5km-by-5km
+```
+
+```{r}
+# import outline shapefile for Ethiopia
+Ethiopia_outline <- st_read("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/gadm41_ETH_0.shp")
+#source of shapefile: https://gadm.org
+
+# extract the rectangular extent of country
+Ethiopia_extent <- extent(Ethiopia_outline)
+# define the CRS (taken from the raster)
+pcs <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")
+
+```
+2020
+```{r}
+# cropping the global wheat data to Ethiopia's rectangular extent
+Ethiopia_wheat_RCP26_irr_2020_cropped <- crop(wheat_RCP26_irr_2020, Ethiopia_extent)
+plot(Ethiopia_wheat_RCP26_irr_2020_cropped)
+# see comment on code line number 101 and 102
+
+# create an empty raster template with dimensions at 5km
+RasterTemplate <- raster(Ethiopia_outline)
+res(RasterTemplate) <- 0.04166665
+
+# notes of the conversions
+# 0.00083333 = 100m
+# 0.00833330 = 1000m (1km)
+# 0.04166665 = 5000m (5km)
+# 0.08333300 = 10000m (10km)
+```
+
+```{r}
+# resampling the cropped image from coarser (60km) to granular resolution (5km)
+Ethiopia_wheat_RCP26_irr_2020_cropped_resampled <- resample(Ethiopia_wheat_RCP26_irr_2020_cropped, RasterTemplate, method = "bilinear")
+
+# masking (aka cookie-cut) image to the exact boundaries of Ethiopia
+Ethiopia_wheat_RCP26_irr_2020_cookied <- mask(Ethiopia_wheat_RCP26_irr_2020_cropped_resampled, Ethiopia_outline)
+# see resampled layer
+plot(Ethiopia_wheat_RCP26_irr_2020_cookied)
+```
+
+```{r}
+writeRaster(Ethiopia_wheat_RCP26_irr_2020_cookied, "Ethiopia_Wheat_RCP26_Irrigation_5km_2020.tif", format="GTiff", overwrite = TRUE)
+```
+
+```{r}
+
+ use tmap functions for creating maps
+ simple example of tmap code for generating a raster with the wheat index categorised into 15 equal parts
+map_2020 <- tm_shape(Ethiopia_wheat_RCP26_irr_2020_cookied) + tm_raster(title = "Wheat Index", style = "fixed",   breaks = seq(-0.1, 6, length.out = 16), 
+    palette = "BrBG",  
+    midpoint = NA) +
+	tm_shape(Ethiopia_outline) + tm_polygons(alpha = 0, border.col = "black") +
+	tm_scale_bar(position = c("right","top")) +
+	tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",  
+    main.title = "Projected RCP26 Wheat Index for Ethiopia (2020)",  
+    main.title.size = 1.5  
+  )
+
+print(map_2020)
+
+# Convert raster to SpatRaster (if not already a SpatRaster)
+r_20 <- rast(Ethiopia_wheat_RCP26_irr_2020_cookied)
+
+# Save raster to GeoPackage
+writeRaster(r_20, "ISIMPI2b_RCP26_whe_irr_2020.gpkg", overwrite = TRUE)
+```
+
+2030
+```{r}
+# cropping the global wheat data to Ethiopia's rectangular extent
+Ethiopia_wheat_RCP26_irr_2030_cropped <- crop(wheat_RCP26_irr_2030, Ethiopia_extent)
+plot(Ethiopia_wheat_RCP26_irr_2030_cropped)
+# see comment on code line number 101 and 102
+
+# create an empty raster template with dimensions at 5km
+RasterTemplate <- raster(Ethiopia_outline)
+res(RasterTemplate) <- 0.04166665
+
+# notes of the conversions
+# 0.00083333 = 100m
+# 0.00833330 = 1000m (1km)
+# 0.04166665 = 5000m (5km)
+# 0.08333300 = 10000m (10km)
+```
+
+```{r}
+# resampling the cropped image from coarser (60km) to granular resolution (5km)
+Ethiopia_wheat_RCP26_irr_2030_cropped_resampled <- resample(Ethiopia_wheat_RCP26_irr_2030_cropped, RasterTemplate, method = "bilinear")
+
+# masking (aka cookie-cut) image to the exact boundaries of Ethiopia
+Ethiopia_wheat_RCP26_irr_2030_cookied <- mask(Ethiopia_wheat_RCP26_irr_2030_cropped_resampled, Ethiopia_outline)
+# see resampled layer
+plot(Ethiopia_wheat_RCP26_irr_2030_cookied)
+```
+
+```{r}
+writeRaster(Ethiopia_wheat_RCP26_irr_2030_cookied, "Ethiopia_Wheat_RCP26_Irrigation_5km_2030.tif", format="GTiff", overwrite = TRUE)
+```
+
+```{r}
+# repeat Part 3 for layer 2050 and 2080
+
+ use tmap functions for creating maps
+ simple example of tmap code for generating a raster with the wheat index categorised into 15 equal parts
+map_2030 <- tm_shape(Ethiopia_wheat_RCP26_irr_2030_cookied) + tm_raster(title = "Wheat Index", style = "fixed",   breaks = seq(-0.1, 6, length.out = 16),  
+    palette = "BrBG",  
+    midpoint = NA) +
+	tm_shape(Ethiopia_outline) + tm_polygons(alpha = 0, border.col = "black") +
+	tm_scale_bar(position = c("right","top")) +
+	tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",  
+    main.title = "Projected RCP26 Wheat Index for Ethiopia (2030)",  
+    main.title.size = 1.5  
+  )
+
+print(map_2030)
+
+# Convert raster to SpatRaster (if not already a SpatRaster)
+r_30 <- rast(Ethiopia_wheat_RCP26_irr_2030_cookied)
+
+# Save raster to GeoPackage
+writeRaster(r_30, "ISIMPI2b_RCP26_whe_irr_2030.gpkg", overwrite = TRUE)
+```
+
+```{r}
+# Save map as PNG
+tmap_save(map_2030, filename = "ISIMPI2b_RCP26_whe_irr_2030.png", width = 10, height = 7, units = "in", dpi = 300)
+```
+2050
+
+```{r}
+# cropping the global wheat data to Ethiopia's rectangular extent
+Ethiopia_wheat_RCP26_irr_2050_cropped <- crop(wheat_RCP26_irr_2050, Ethiopia_extent)
+plot(Ethiopia_wheat_RCP26_irr_2050_cropped)
+# see comment on code line number 101 and 102
+
+# create an empty raster template with dimensions at 5km
+RasterTemplate <- raster(Ethiopia_outline)
+res(RasterTemplate) <- 0.04166665
+
+# notes of the conversions
+# 0.00083333 = 100m
+# 0.00833330 = 1000m (1km)
+# 0.04166665 = 5000m (5km)
+# 0.08333300 = 10000m (10km)
+```
+
+```{r}
+# resampling the cropped image from coarser (60km) to granular resolution (5km)
+Ethiopia_wheat_RCP26_irr_2050_cropped_resampled <- resample(Ethiopia_wheat_RCP26_irr_2050_cropped, RasterTemplate, method = "bilinear")
+
+# masking (aka cookie-cut) image to the exact boundaries of Ethiopia
+Ethiopia_wheat_RCP26_irr_2050_cookied <- mask(Ethiopia_wheat_RCP26_irr_2050_cropped_resampled, Ethiopia_outline)
+# see resampled layer
+plot(Ethiopia_wheat_RCP26_irr_2050_cookied)
+```
+
+```{r}
+writeRaster(Ethiopia_wheat_RCP26_irr_2050_cookied, "/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_Wheat_Irrigation_5km_2050.tif", format="GTiff", overwrite = TRUE)
+```
+
+```{r}
+# repeat Part 3 for layer 2050 and 2080
+
+ use tmap functions for creating maps
+ simple example of tmap code for generating a raster with the wheat index categorised into 15 equal parts
+map_2050 <- tm_shape(Ethiopia_wheat_RCP26_irr_2050_cookied) + tm_raster(title = "Wheat Index", style = "fixed",   breaks = seq(-0.1, 6, length.out = 16),  
+    palette = "BrBG",  
+    midpoint = NA) +
+	tm_shape(Ethiopia_outline) + tm_polygons(alpha = 0, border.col = "black") +
+		tm_scale_bar(position = c("right","top")) +
+	tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",  
+       main.title = "Projected RCP26 Wheat Index for Ethiopia (2050)",
+    main.title.size = 1.5
+  )
+
+print(map_2050)
+
+# Convert raster to SpatRaster (if not already a SpatRaster)
+r_50 <- rast(Ethiopia_wheat_RCP26_irr_2050_cookied)
+
+# Save raster to GeoPackage
+writeRaster(r_50, "ISIMPI2b_RCP26_whe_irr_2050.gpkg", overwrite = TRUE)
+```
+
+
+```{r}
+# Save map as PNG
+tmap_save(map_2050, filename = "ISIMPI2b_RCP26_whe_irr_2050.png", width = 10, height = 7, units = "in", dpi = 300)
+```
+
+
+2080
+
+```{r}
+# cropping the global wheat data to Ethiopia's rectangular extent
+Ethiopia_wheat_RCP26_irr_2080_cropped <- crop(wheat_RCP26_irr_2080, Ethiopia_extent)
+plot(Ethiopia_wheat_RCP26_irr_2080_cropped)
+# see comment on code line number 101 and 102
+
+# create an empty raster template with dimensions at 5km
+RasterTemplate <- raster(Ethiopia_outline)
+res(RasterTemplate) <- 0.04166665
+
+# notes of the conversions
+# 0.00083333 = 100m
+# 0.00833330 = 1000m (1km)
+# 0.04166665 = 5000m (5km)
+# 0.08333300 = 10000m (10km)
+```
+
+```{r}
+# resampling the cropped image from coarser (60km) to granular resolution (5km)
+Ethiopia_wheat_RCP26_irr_2080_cropped_resampled <- resample(Ethiopia_wheat_RCP26_irr_2080_cropped, RasterTemplate, method = "bilinear")
+
+# masking (aka cookie-cut) image to the exact boundaries of Ethiopia
+Ethiopia_wheat_RCP26_irr_2080_cookied <- mask(Ethiopia_wheat_RCP26_irr_2080_cropped_resampled, Ethiopia_outline)
+# see resampled layer
+plot(Ethiopia_wheat_RCP26_irr_2080_cookied)
+```
+
+```{r}
+writeRaster(Ethiopia_wheat_RCP26_irr_2080_cookied, "/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_RCP26_Wheat_Irrigation_5km_2080.tif", format="GTiff", overwrite = TRUE)
+```
+
+```{r}
+# repeat Part 3 for layer 2050 and 2080
+
+ use tmap functions for creating maps
+ simple example of tmap code for generating a raster with the wheat index categorised into 15 equal parts
+map_2080 <- tm_shape(Ethiopia_wheat_RCP26_irr_2080_cookied) + tm_raster(title = "Wheat Index", style = "fixed",   breaks = seq(-0.1, 6, length.out = 16),  
+    palette = "BrBG",  
+    midpoint = NA) +
+	tm_shape(Ethiopia_outline) + tm_polygons(alpha = 0, border.col = "black") +
+	tm_scale_bar(position = c("right","top")) +
+	tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",  
+     main.title = "Projected RCP26 Wheat Index for Ethiopia (2080)",
+    main.title.size = 1.5
+  )
+
+print(map_2080)
+# Convert raster to SpatRaster (if not already a SpatRaster)
+r_80 <- rast(Ethiopia_wheat_RCP26_irr_2080_cookied)
+
+# Save raster to GeoPackage
+writeRaster(r_80, "ISIMPI2b_RCP26_whe_irr_2080.gpkg", overwrite = TRUE)
+```
+```{r}
+# Save map as PNG
+tmap_save(map_2080, filename = "ISIMPI2b_RCP26_whe_irr_2080.png", width = 10, height = 7, units = "in", dpi = 300)
+```
+
+```{r}
+# Combine all maps side by side using tmap_arrange
+combined_maps <- tmap_arrange(
+  map_2020, 
+  map_2030, 
+  map_2050, 
+  map_2080,
+  ncol = 2,  
+  nrow = 2   
+)
+
+# Print the combined maps
+print(combined_maps)
+```
+
+save as vector?
+```{r}
+# Save vector data (e.g., Ethiopia_outline)
+st_write(Ethiopia_outline, "map_layers.gpkg", layer = "Ethiopia_outline", delete_layer = TRUE)
+
+# Save another vector dataset to the same GeoPackage
+st_write(Ethiopia_wheat_RCP26_irr_2030_cookied, "map_layers.gpkg", layer = "Ethiopia_wheat")
+
+# Load vector data
+Ethiopia_outline <- st_read("map_layers.gpkg", layer = "Ethiopia_outline")
+Ethiopia_wheat <- st_read("map_layers.gpkg", layer = "Ethiopia_wheat")
+```
+
+save as raster?
+```{r}
+
+# Convert raster to SpatRaster and save
+r <- rast(Ethiopia_wheat_RCP26_irr2030_cookied)
+writeRaster(r, "map_layers.gpkg", format = "GPKG", overwrite = TRUE)
+
+
+# Load raster data
+wheat_raster <- rast("map_layers.gpkg")
+```
+
+
+
+TRIALS
+
+
+
+```{r}
+
+# Calculate the difference in yield (example: 2050 - 2030)
+yield_diff_2030_2050 <- Ethiopia_wheat_RCP26_irr_2050_cookied - Ethiopia_wheat_RCP26_irr_2030_cookied
+
+# Map the difference with a diverging color palette
+map_diff_2030_2050 <- tm_shape(yield_diff_2030_2050) +
+  tm_raster(
+    title = "Yield Change (2050 - 2030)", 
+    palette = "RdYlGn",  # Diverging palette (- reverses colors: red for decreases, green for increases)
+    style = "cont",       # Continuous scale
+    midpoint = 0          # Ensure 0 is the center of the color scale
+  ) +
+  tm_shape(Ethiopia_outline) +
+  tm_polygons(alpha = 0, border.col = "black") +
+  tm_scale_bar(position = c("right", "top")) +
+  tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",
+    main.title = "Yield Change in Ethiopia (2050 vs. 2030)",
+    main.title.size = 1.5
+  )
+
+# Print the map
+print(map_diff_2030_2050)
+```
+```{r}
+# Calculate the difference in yield (2080 - 2050)
+yield_diff_2050_2080 <- Ethiopia_wheat_RCP26_irr_2080_cookied - Ethiopia_wheat_RCP26_irr_2050_cookied
+
+# Map the difference for 2080 vs. 2050
+map_diff_2050_2080 <- tm_shape(yield_diff_2050_2080) +
+  tm_raster(
+    title = "Yield Change (2080 - 2050)", 
+    palette = "RdYlGn", 
+    style = "cont", 
+    midpoint = 0
+  ) +
+  tm_shape(Ethiopia_outline) +
+  tm_polygons(alpha = 0, border.col = "black") +
+  tm_scale_bar(position = c("right", "top")) +
+  tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",
+    main.title = "Yield Change in Ethiopia (2080 vs. 2050)",
+    main.title.size = 1.5
+  )
+
+# Print the map
+print(map_diff_2050_2080)
+```
+```{r}
+# Calculate the difference in yield (2080 - 2050)
+yield_diff_2030_2080 <- Ethiopia_wheat_RCP26_irr_2080_cookied - Ethiopia_wheat_RCP26_irr_2030_cookied
+
+# Map the difference for 2080 vs. 2050
+map_diff_2030_2080 <- tm_shape(yield_diff_2030_2080) +
+  tm_raster(
+    title = "Yield Change (2080 - 2030)", 
+    palette = "RdYlGn", 
+    style = "cont", 
+    midpoint = 0
+  ) +
+  tm_shape(Ethiopia_outline) +
+  tm_polygons(alpha = 0, border.col = "black") +
+  tm_scale_bar(position = c("right", "top")) +
+  tm_compass(position = c("right", "bottom")) +
+  tm_layout(
+    legend.outside = TRUE,  
+    legend.outside.position = "right",
+    main.title = "Yield Change in Ethiopia (2080 vs. 2030)",
+    main.title.size = 1.5
+  )
+
+# Print the map
+print(map_diff_2030_2080)
+```

@@ -1,0 +1,817 @@
+---
+title: "ML_TESTING"
+output: html_document
+date: "2025-04-23"
+---
+
+
+```{r}
+library(terra) 
+library(raster)
+library(tidyverse)
+library(dplyr)
+library(caret)
+library(sp)
+library(randomForest)
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(mgcv)  
+library(gamlss)       
+library(gamlss.add)   
+library(maxnet)     
+library(PresenceAbsence)  
+library(dlnm)
+library(pROC)
+```
+
+Need to layer tiff files to and extract trial and test data 
+```{r}
+getwd()
+
+#Load TIFF files
+tiff_file_2b_noirr_pic_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_Wheat_noirrigation_5km_2020 copy.tif")  
+
+tiff_file_2b_irr_pic_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_Wheat_Irrigation_5km_2020 copy.tif")
+
+tiff_file_2b_noirr_rcp26_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_wheat_RCP26_noirrigation_5km_2020 copy.tif")
+  
+tiff_file_2b_irr_rcp26_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_Wheat_RCP26_Irrigation_5km_2020 copy.tif")
+
+tiff_file_2b_noirr_rcp60_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_wheat_RCP60_noirrigation_5km_2020 copy.tif")
+
+tiff_file_2b_irr_rcp60_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_Wheat_RCP60_Irrigation_5km_2020 copy.tif")
+
+
+#Check the number of layers and metadata
+print(tiff_file_2b_noirr_pic_20)
+plot(tiff_file_2b_noirr_pic_20)  
+
+print(tiff_file_2b_irr_pic_20)
+plot(tiff_file_2b_irr_pic_20)  
+
+print(tiff_file_2b_noirr_rcp26_20)
+plot(tiff_file_2b_noirr_rcp26_20)  
+
+print(tiff_file_2b_irr_rcp26_20)
+plot(tiff_file_2b_irr_rcp26_20)  
+
+print(tiff_file_2b_noirr_rcp60_20)
+plot(tiff_file_2b_noirr_rcp60_20) 
+
+print(tiff_file_2b_irr_rcp60_20)
+plot(tiff_file_2b_irr_rcp60_20) 
+```
+
+Load soil moisture files:
+```{r}
+
+#Load TIFF files
+tiff_file_2b_soilmoist_pic_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/CLM45_PIC_Weighted_Average_Soil_Moisture_5km_2020 copy.tif")  
+
+tiff_file_2b_soilmoist_rcp26_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020 copy.tif")
+  
+tiff_file_2b_soilmoist_rcp60_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/CLM45_RPC_60_Weighted_Average_Soil_Moisture_5km_2020 copy.tif")
+
+tiff_file_2b_soilmoist_rcp85_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/CLM45_RPC_85_Weighted_Average_Soil_Moisture_5km_2020 copy.tif")
+
+
+#Check the number of layers and metadata
+print(tiff_file_2b_soilmoist_pic_20)
+plot(tiff_file_2b_soilmoist_pic_20)  
+ 
+print(tiff_file_2b_soilmoist_rcp26_20)
+plot(tiff_file_2b_soilmoist_rcp26_20)  
+
+print(tiff_file_2b_soilmoist_rcp60_20)
+plot(tiff_file_2b_soilmoist_rcp60_20) 
+
+print(tiff_file_2b_soilmoist_rcp85_20)
+plot(tiff_file_2b_soilmoist_rcp85_20) 
+```
+
+
+Load Food security value file:
+```{r}
+Food_security_values = read.csv("Socio-economic-survey-ETH_2020_FSI.csv")
+
+View(Food_security_values)
+```
+
+```{r}
+
+#Load TIFF files
+
+#Yeild
+tiff_file_2b_noirr_rcp26_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/Ethiopia_wheat_RCP26_noirrigation_5km_2020 copy.tif") 
+
+print(tiff_file_2b_noirr_rcp26_20)
+plot(tiff_file_2b_noirr_rcp26_20)  
+
+#soil moisture
+tiff_file_2b_soilmoist_rcp26_20 <- rast("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020 copy.tif")
+
+print(tiff_file_2b_soilmoist_rcp26_20)
+plot(tiff_file_2b_soilmoist_rcp26_20)  
+
+#stacking raster files
+#Convert SpatRaster to RasterLayer
+#tiff_file_2b_soilmoist_rcp26_20_raster <- raster(tiff_file_2b_soilmoist_rcp26_20)
+
+#Stack the rasters
+#rs_rcp26_20 <- stack(tiff_file_2b_noirr_rcp26_20, tiff_file_2b_soilmoist_rcp26_20_raster)
+
+
+rs_rcp26_20 <- c(tiff_file_2b_noirr_rcp26_20, tiff_file_2b_soilmoist_rcp26_20)
+
+#Plot the raster stack
+plot(rs_rcp26_20)
+
+
+
+```
+Extract the raster values for each layer and combine them into a dataset for modeling. 
+```{r}
+#Convert raster layers to a data frame
+noirr_rcp26_20 <- as.data.frame(tiff_file_2b_noirr_rcp26_20, xy = TRUE, na.rm = TRUE)
+
+soilmoist_rcp26_20 <- as.data.frame(tiff_file_2b_soilmoist_rcp26_20, xy = TRUE, na.rm = TRUE)
+
+#Inspect data
+head(noirr_rcp26_20)
+head(soilmoist_rcp26_20)
+```
+
+```{r}
+#Load food security data
+Food_security_values <- read.csv("Socio-economic-survey-ETH_2020_FSI.csv")
+
+#Check 'lon' and 'lat' columns 
+head(Food_security_values)
+
+#Convert to SpatVector with correct CRS
+Food_security_locations <- vect(Food_security_values, geom = c("lon", "lat"), crs = "EPSG:4326")
+
+Food_security_locations <- project(Food_security_locations, crs(rs_rcp26_20))
+
+#Extract raster values at the given locations
+Food_Security_Extract1 <- terra::extract(rs_rcp26_20, Food_security_locations)
+
+#View extracted values
+head(Food_Security_Extract1)
+
+#Extract raster values at the point locations
+Food_Security_Extract1 <- raster::extract(rs_rcp26_20, Food_security_locations)
+
+#Combine with the point coordinates
+Food_Security_Extract1_df <- cbind(as.data.frame(Food_security_locations), Food_Security_Extract1)
+
+#View 
+head(Food_Security_Extract1_df)
+print(Food_Security_Extract1_df)
+
+
+```
+
+
+```{r}
+#Plot raster
+plot(rs_rcp26_20[[1]], main = "Raster and Points")
+
+points(Food_security_locations, col = "red", pch = 19)
+```
+
+```{r}
+#Load Ethiopia shapefile
+ethiopia_map <- st_read("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ML Data/TIFF Rename/gadm41_ETH_0.shp")  
+
+#Plot raster 
+plot(ethiopia_map[[1]], main = "Raster and Points")
+
+points(Food_security_locations, col = "red", pch = 19)
+```
+
+
+
+```{r}
+
+
+#Load Ethiopia boundary
+ethiopia <- ne_countries(scale = "medium", country = "Ethiopia", returnclass = "sf")
+
+#Convert Food Security Points to an sf object
+Food_security_points <- st_as_sf(Food_security_values, coords = c("lon", "lat"), crs = 4326)
+
+#Change FSI_Bool is a factor for color mapping
+Food_security_points$FSI_Bool <- as.factor(Food_security_values$FSI_Bool)
+
+#Extract coordinates into separate columns
+Food_security_points$longitude <- st_coordinates(Food_security_points)[, 1]
+Food_security_points$latitude <- st_coordinates(Food_security_points)[, 2]
+
+#Plot Ethiopia with points colored by presence/absence
+ggplot() +
+  geom_sf(data = ethiopia, fill = "gray90", color = "black") + 
+  geom_point(data = Food_security_points, aes(x = longitude, y = latitude, color = FSI_Bool), size = 2, alpha = 0.7) +
+  scale_color_manual(values = c("red", "blue"), labels = c("Absence (0)", "Presence (1)")) +  
+  theme_minimal() +
+  labs(title = "Presence and Absence Points in Ethiopia",
+       color = "FSI Presence",
+       x = "Longitude", y = "Latitude")
+```
+
+
+```{r}
+#Standardise column names
+names(Food_Security_Variables_Values_rcp26_20) <- make.names(names(Food_Security_Variables_Values_rcp26_20), unique = TRUE)
+
+#Check cleaned column names
+colnames(Food_Security_Variables_Values_rcp26_20)
+```
+
+
+Split the data into training and testing subsets and train model with FSI
+```{r}
+#Split data into training and testing sets
+set.seed(123)
+
+#Select the relevant features for modeling
+raster_values <- Food_Security_Variables_Values_rcp26_20 %>%
+  select(Ethiopia_wheat_RCP26_noirrigation_5km_2020.copy, 
+         CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020.copy, 
+         FSI) %>%
+  na.omit() 
+
+colnames(raster_values) <- c("Wheat_Index", "Soil_Moisture", "FSI")
+
+#Split the data
+train_index <- sample(1:nrow(raster_values), size = 0.7 * nrow(raster_values))
+train_data <- raster_values[train_index, ]
+test_data <- raster_values[-train_index, ]
+
+#Convert FSI to a factor
+raster_values$FSI <- as.factor(raster_values$FSI)
+train_data$FSI <- factor(train_data$FSI, levels = levels(raster_values$FSI))
+test_data$FSI <- factor(test_data$FSI, levels = levels(raster_values$FSI))
+
+#Train a random forest model
+rf_model <- randomForest(FSI ~ ., data = train_data, ntree = 100)
+
+#Evaluate the model
+predictions <- predict(rf_model, test_data)
+
+test_data$FSI <- as.factor(test_data$FSI)
+predictions <- as.factor(predictions)
+
+#Confusion matrix for model evaluation
+confusion_matrix <- confusionMatrix(predictions, test_data$FSI)
+print(confusion_matrix)
+```
+
+```{r}
+
+#Combine test data with predictions
+test_data_with_preds <- test_data
+test_data_with_preds$Predicted <- predictions
+
+#Create a heatmap of predicted vs actual FSI
+ggplot(test_data_with_preds, aes(x = FSI, y = Predicted)) +
+  geom_bin2d() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(
+    title = "Heatmap of Predictions vs Actual (Original Data)",
+    x = "Actual FSI",
+    y = "Predicted FSI"
+  ) +
+  theme_minimal()
+
+
+
+#Plot confusion matrix
+conf_matrix_df <- as.data.frame(confusion_matrix$table)
+ggplot(conf_matrix_df, aes(Reference, Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 5) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(
+    title = "Confusion Matrix (Original Data)",
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme_minimal()
+```
+
+Split the data into training and testing subsets and train model with FSI_Bool
+```{r}
+
+set.seed(123)
+
+#Select relevant features
+raster_values1 <- Food_Security_Variables_Values_rcp26_20 %>%
+  select(Ethiopia_wheat_RCP26_noirrigation_5km_2020.copy, 
+         CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020.copy, 
+         FSI_Bool) %>%
+  na.omit()
+
+colnames(raster_values1) <- c("Wheat_Index", "Soil_Moisture", "FSI_Bool")
+
+#Check FSI_Bool is a factor
+raster_values1$FSI_Bool <- as.factor(raster_values1$FSI_Bool)
+
+#Split data into training and testing sets
+train_index1 <- sample(1:nrow(raster_values1), size = 0.7 * nrow(raster_values1))
+train_data1 <- raster_values1[train_index1, ]
+test_data1 <- raster_values1[-train_index1, ]
+
+test_data1$FSI_Bool <- factor(test_data1$FSI_Bool, levels = levels(train_data1$FSI_Bool))
+
+#Train the random forest model
+rf_model1 <- randomForest(FSI_Bool ~ ., data = train_data1, ntree = 100)
+
+#Make predictions
+predictions1 <- predict(rf_model1, test_data1)
+
+#Convert predictions to factor with same levels as FSI_Bool in test data
+predictions1 <- factor(predictions1, levels = levels(test_data1$FSI_Bool))
+
+#Confusion matrix for model evaluation
+confusion_matrix <- confusionMatrix(predictions1, test_data1$FSI_Bool)
+
+#Print the confusion matrix
+print(confusion_matrix)
+```
+
+```{r}
+
+set.seed(123)
+
+#Select the relevant features for modeling
+raster_values1 <- Food_Security_Variables_Values_rcp26_20 %>%
+  select(Ethiopia_wheat_RCP26_noirrigation_5km_2020.copy, 
+         CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020.copy, 
+         FSI_Bool)
+
+colnames(raster_values1) <- c("Wheat_Index", "Soil_Moisture", "FSI_Bool")
+
+#Convert FSI_Bool to a boolean variable where 0 = food insecurity absent, 1 = food security present
+raster_values1$FSI_Bool <- ifelse(raster_values1$FSI_Bool == 0, "Absent", "Present")
+raster_values1$FSI_Bool <- as.factor(raster_values1$FSI_Bool) 
+
+#Split the data into training and testing sets
+train_index1 <- sample(1:nrow(raster_values1), size = 0.7 * nrow(raster_values1))
+train_data1 <- raster_values1[train_index1, ]
+test_data1 <- raster_values1[-train_index1, ]
+
+#Train a random forest model
+rf_model1 <- randomForest(FSI_Bool ~ ., data = train_data1, ntree = 100)
+
+#Evaluate the model
+predictions1 <- predict(rf_model1, test_data1)
+
+#Confusion matrix for model evaluation
+confusion_matrix1 <- confusionMatrix(predictions1, test_data1$FSI_Bool)
+print(confusion_matrix1)
+```
+
+```{r}
+#Combine test data with predictions
+test_data_with_preds <- test_data1
+test_data_with_preds$Predicted <- predictions1
+
+#Create a heatmap of predicted vs actual FSI_Bool
+ggplot(test_data_with_preds, aes(x = FSI_Bool, y = Predicted)) +
+  geom_bin2d() +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(
+    title = "Heatmap of Predictions vs Actual (Original Data)",
+    x = "Actual FSI_Bool",
+    y = "Predicted FSI_Bool"
+  ) +
+  theme_minimal()
+
+
+#Plot confusion matrix
+conf_matrix_df1 <- as.data.frame(confusion_matrix1$table)
+ggplot(conf_matrix_df1, aes(Reference, Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 5) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(
+    title = "Confusion Matrix (Original Data)",
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme_minimal()
+```
+
+
+Generalised additive model
+```{r}
+
+raster_values1$FSI_Bool <- as.factor(raster_values1$FSI_Bool)
+
+set.seed(123) 
+train_index1 <- sample(1:nrow(raster_values1), size = 0.7 * nrow(raster_values1))
+train_data1 <- raster_values1[train_index1, ]
+test_data1 <- raster_values1[-train_index1, ]
+
+#Fit GAM with smoothing splines on Wheat_Index and Soil_Moisture
+gam_model1 <- gam(FSI_Bool ~ s(Wheat_Index) + s(Soil_Moisture), 
+                  family = binomial, 
+                  data = train_data1)
+
+#Print model summary
+summary(gam_model1)
+
+```
+
+Dynamic Generalised Additive model:
+
+```{r}
+#Ensure FSI_Bool is a factor (0 = Absent, 1 = Present)
+raster_values1$FSI_Bool <- as.factor(raster_values1$FSI_Bool)
+
+#Check data structure
+str(raster_values1)
+
+#Split into training (70%) and test (30%) sets
+set.seed(123) 
+train_index1 <- sample(1:nrow(raster_values1), size = 0.7 * nrow(raster_values1))
+train_data1 <- raster_values1[train_index1, ]
+test_data1 <- raster_values1[-train_index1, ]
+
+#Fit DGAMLSS using smooth functions for predictors
+dgamlss_model <- gamlss(FSI_Bool ~ pb(Wheat_Index) + pb(Soil_Moisture), 
+                        family = BI(),
+                        data = train_data1)
+
+#Print model summary
+summary(dgamlss_model)
+
+#Plot the effects of Wheat Yield and Soil Moisture
+par(mfrow = c(1, 2))  
+term.plot(dgamlss_model, pages = 1)
+
+#Predict probabilities on test set
+test_data1$predicted_prob <- predict(dgamlss_model, newdata = test_data1, type = "response")
+
+#Convert probabilities to binary classification (threshold = 0.5)
+test_data1$predicted_class <- ifelse(test_data1$predicted_prob > 0.5, "Present", "Absent")
+
+#Convert to factors for classification evaluation
+test_data1$predicted_class <- factor(test_data1$predicted_class, levels = levels(test_data1$FSI_Bool))
+
+#Confusion Matrix
+confusion_matrix_dgamlss <- confusionMatrix(test_data1$predicted_class, test_data1$FSI_Bool)
+
+#Print Confusion Matrix
+print(confusion_matrix_dgamlss)
+
+ggplot(test_data1, aes(x = Wheat_Index, y = predicted_prob, color = FSI_Bool)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess") +
+  labs(title = "Predicted Probability of Food Security",
+       x = "Wheat Index",
+       y = "Predicted Probability")
+
+
+```
+
+```{r}
+#confusion matrix
+conf_matrix <- confusionMatrix(test_data1$predicted_class, test_data1$FSI_Bool)
+
+#Extract the confusion matrix as a data frame
+conf_matrix_table <- as.data.frame(conf_matrix$table)
+
+#Rename columns for better readability
+colnames(conf_matrix_table) <- c("Actual", "Predicted", "Frequency")
+
+#Print the confusion matrix table
+print(conf_matrix_table)
+
+#Compute the confusion matrix
+conf_matrix <- confusionMatrix(test_data1$predicted_class, test_data1$FSI_Bool)
+
+#Print detailed confusion matrix results
+print(conf_matrix)
+
+#Plot confusion matrix
+ggplot(conf_matrix_table, aes(x = Actual, y = Predicted, fill = Frequency)) +
+  geom_tile(color = "black") + 
+  geom_text(aes(label = Frequency), color = "white", size = 5) + 
+  scale_fill_gradient(low = "lightblue", high = "darkblue") + 
+  theme_minimal() +
+  labs(
+    title = "Confusion Matrix",
+    x = "Actual Class",
+    y = "Predicted Class",
+    fill = "Count"
+  ) +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+Maximum Entropy:
+```{r}
+#Reload the food security dataset
+Food_security_values <- read.csv("Socio-economic-survey-ETH_2020_FSI.csv")
+
+#Check FSI_Bool is binary
+Food_security_values$FSI_Bool <- as.numeric(Food_security_values$FSI_Bool)
+
+Food_security_values <- na.omit(Food_security_values)
+
+#Merge Food Security Data with Raster Data
+raster_values1 <- merge(Food_security_values, raster_values1, by = c("lon", "lat"), all.y = TRUE)
+
+#Remove rows where FSI_Bool is still NA
+raster_values1 <- raster_values1 %>% filter(!is.na(FSI_Bool))
+
+#Split into training (70%) and test (30%) sets
+set.seed(123)  
+train_index1 <- sample(1:nrow(raster_values1), size = 0.7 * nrow(raster_values1))
+train_data1 <- raster_values1[train_index1, ]
+test_data1 <- raster_values1[-train_index1, ]
+
+#Train Maximum Entropy Model (MaxEnt)
+maxent_model <- maxnet(
+  p = train_data1$FSI_Bool,
+  data = train_data1 %>% select(Wheat_Index, Soil_Moisture), 
+  f = maxnet.formula(train_data1$FSI_Bool, train_data1 %>% select(Wheat_Index, Soil_Moisture))
+)
+
+#Print
+summary(maxent_model)
+
+
+```
+
+```{r}
+#Ensure FSI_Bool is numeric (0 = Absent, 1 = Present)
+raster_values1$FSI_Bool <- as.numeric(as.character(raster_values1$FSI_Bool))
+
+#Split into training (70%) and test (30%) sets
+set.seed(123)  
+train_index1 <- sample(1:nrow(raster_values1), size = 0.7 * nrow(raster_values1))
+train_data1 <- raster_values1[train_index1, ]
+test_data1 <- raster_values1[-train_index1, ]
+
+#Train Maximum Entropy Model (MaxEnt)
+maxent_model <- maxnet(
+  p = train_data1$FSI_Bool,  
+  data = train_data1 %>% select(Wheat_Index, Soil_Moisture), 
+  f = maxnet.formula(train_data1$FSI_Bool, train_data1 %>% select(Wheat_Index, Soil_Moisture))
+)
+
+#Print 
+summary(maxent_model)
+
+#Predict probabilities on test data
+test_data1$predicted_prob <- predict(maxent_model, test_data1 %>% select(Wheat_Index, Soil_Moisture), type = "exponential")
+
+#Convert probabilities to binary classification (threshold = 0.5)
+test_data1$predicted_class <- ifelse(test_data1$predicted_prob > 0.5, "Present", "Absent")
+
+#Convert to factors for classification evaluation
+test_data1$predicted_class <- factor(test_data1$predicted_class, levels = levels(factor(test_data1$FSI_Bool)))
+
+#Compute Confusion Matrix
+confusion_matrix_maxent <- confusionMatrix(test_data1$predicted_class, factor(test_data1$FSI_Bool, levels = c("Absent", "Present")))
+
+#Print Confusion Matrix
+print(confusion_matrix_maxent)
+
+#Convert confusion matrix to data frame
+conf_matrix_table <- as.data.frame(confusion_matrix_maxent$table)
+
+colnames(conf_matrix_table) <- c("Actual", "Predicted", "Frequency")
+
+#Plot confusion matrix heatmap
+ggplot(conf_matrix_table, aes(x = Actual, y = Predicted, fill = Frequency)) +
+  geom_tile(color = "black") +  
+  geom_text(aes(label = Frequency), color = "white", size = 6) +  
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  
+  theme_minimal() +
+  labs(
+    title = "MaxEnt Model - Confusion Matrix",
+    x = "Actual Class",
+    y = "Predicted Class",
+    fill = "Count"
+  ) +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 14))
+
+#Extract feature importance
+importance <- as.data.frame(varImp(maxent_model))
+
+#Plot feature importance
+ggplot(importance, aes(x = reorder(rownames(importance), Overall), y = Overall, fill = Overall)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Feature Importance (MaxEnt Model)", x = "Features", y = "Importance Score") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue")
+
+#Extract key evaluation metrics
+accuracy <- confusion_matrix_maxent$overall["Accuracy"]
+kappa <- confusion_matrix_maxent$overall["Kappa"]
+sensitivity <- confusion_matrix_maxent$byClass["Sensitivity"]
+specificity <- confusion_matrix_maxent$byClass["Specificity"]
+precision <- confusion_matrix_maxent$byClass["Pos Pred Value"]
+f1_score <- 2 * ((precision * sensitivity) / (precision + sensitivity))
+
+#Print results
+cat("Accuracy:", accuracy, "\n")
+cat("Kappa:", kappa, "\n")
+cat("Sensitivity (Recall):", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("Precision:", precision, "\n")
+cat("F1-Score:", f1_score, "\n")
+
+
+```
+
+
+```{r}
+#Load Ethiopia shapefile 
+ethiopia_map <- st_read("/Users/maiawatson-hearne/Desktop/UCL Geography Y3/Dissertation/Data/ISIMPI/gadm41_ETH_0.shp")  
+
+#Ensure the coordinate reference system (CRS) matches
+ethiopia_map <- st_transform(ethiopia_map, crs = 4326)
+```
+
+
+After training, use model to predict labels for the entire raster dataset
+```{r}
+#Include latitude and longitude columns 
+raster_values1 <- Food_Security_Variables_Values_rcp26_20 %>%
+  select(
+    Ethiopia_wheat_RCP26_noirrigation_5km_2020.copy,
+    CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020.copy,
+    lat,
+    lon,
+    FSI_Bool
+  ) 
+
+test_data_with_preds$lat <- raster_values1[-train_index1, "lat"]
+test_data_with_preds$lon <- raster_values1[-train_index1, "lon"]
+view(test_data_with_preds)
+
+#Convert test data with predictions to an sf object
+test_data_sf <- st_as_sf(test_data_with_preds, coords = c("lon", "lat"), crs = 4326)
+
+#Plot the map with predictions
+ggplot() +
+  geom_sf(data = ethiopia_map, fill = "gray90", color = "black") +  
+  geom_sf(data = test_data_sf, aes(color = Predicted), size = 1, alpha = 0.7) +  
+  scale_color_manual(values = c("Absent" = "red", "Present" = "green")) + 
+  labs(
+    title = "Predicted Food Security in Ethiopia",
+    color = "Predicted FSI_Bool"
+  ) +
+  theme_minimal()
+```
+
+
+After training, use model to predict labels for the entire raster dataset
+```{r}
+#Predict on raster layers
+predicted_raster <- predict(tiff_file, rf_model)
+
+#Visualize the predicted raster
+plot(predicted_raster)
+```
+
+Maximum entropy
+```{r}
+#Prepare raster_values1 dataset with predictors
+raster_values2 <- Food_Security_Variables_Values_rcp26_20 %>%
+  select(
+    Ethiopia_wheat_RCP26_noirrigation_5km_2020.copy,
+    CLM45_RPC_26_Weighted_Average_Soil_Moisture_5km_2020.copy,
+    lat,
+    lon,
+    FSI_Bool
+  ) 
+
+colnames(raster_values2) <- c("Wheat_Index", "Soil_Moisture", "lat", "lon", "FSI_Bool")
+
+#Convert FSI_Bool to binary (0 = absent, 1 = present)
+raster_values2$FSI_Bool <- as.numeric(raster_values2$FSI_Bool)
+```
+
+```{r}
+#Ensure FSI_Bool is numeric (0 = absent, 1 = present)
+train_data$FSI_Bool <- as.numeric(as.character(train_data$FSI_Bool))
+test_data$FSI_Bool <- as.numeric(as.character(test_data$FSI_Bool))
+
+#Train the MaxEnt model
+maxent_model <- maxnet(
+  p = train_data$FSI_Bool,  
+  data = train_data[, c("Wheat_Index", "Soil_Moisture")],  
+  f = maxnet.formula(
+    p = train_data$FSI_Bool,
+    data = train_data[, c("Wheat_Index", "Soil_Moisture")]
+  )
+)
+```
+
+```{r}
+#Predict probabilities on the test dataset
+test_data$Predicted_Prob <- predict(maxent_model, test_data[, c("Wheat_Index", "Soil_Moisture")], type = "logistic")
+```
+
+```{r}
+#Convert probabilities to binary predictions using a threshold (e.g., 0.5)
+test_data$Predicted_Binary <- ifelse(test_data$Predicted_Prob > 0.5, 1, 0)
+
+#Confusion matrix
+confusion_matrix <- confusionMatrix(factor(test_data$Predicted_Binary),
+                                    factor(test_data$FSI_Bool))
+print(confusion_matrix)
+```
+
+
+Trialing Dynamic Generalized Additive Models
+
+```{r}
+set.seed(123)
+n <- 1000
+data <- data.frame(
+  Time = 1:n,
+  Wheat_Index = runif(n, 50, 100),
+  Soil_Moisture = runif(n, 20, 80),
+  FSI_Bool = as.factor(rbinom(n, 1, 0.5))
+)
+
+#Convert to factor
+data$FSI_Bool <- factor(data$FSI_Bool, levels = c(0, 1), labels = c("absent", "present"))
+```
+
+```{r}
+
+#Fit the DGAM
+model_dgam <- gam(
+  FSI_Bool ~ s(Wheat_Index) + s(Soil_Moisture) + s(Time, bs = "cr"),
+  data = data,
+  family = binomial(link = "logit")
+)
+
+#Summarise the model
+summary(model_dgam)
+```
+```{r}
+#Plot smooth terms
+plot(model_dgam, pages = 1, seWithMean = TRUE, rug = TRUE)
+```
+
+```{r}
+#Generate new data for prediction
+new_data <- data.frame(
+  Time = seq(1, 200, length.out = 50),
+  Wheat_Index = runif(50, 50, 100),
+  Soil_Moisture = runif(50, 20, 80)
+)
+
+#Predict probabilities
+predictions <- predict(model_dgam, newdata = new_data, type = "response")
+
+#Add predictions to new_data
+new_data$Predicted_Prob <- predictions
+
+head(new_data)
+```
+
+```{r}
+
+#Predict on test data
+pred_probs <- predict(model_dgam, newdata = data, type = "response")
+pred_classes <- ifelse(pred_probs > 0.5, "present", "absent")
+
+#Confusion Matrix
+confusion_matrix <- table(Predicted = pred_classes, Actual = data$FSI_Bool)
+print(confusion_matrix)
+
+#ROC Curve
+roc_curve <- roc(data$FSI_Bool, pred_probs, levels = c("absent", "present"))
+plot(roc_curve, main = "ROC Curve")
+auc(roc_curve)  
+```
+
+```{r}
+#Create a distributed lag structure for Wheat_Index
+lag_wheat <- crossbasis(data$Wheat_Index, lag = 5, argvar = list(fun = "ns", df = 3), arglag = list(fun = "ns", df = 3))
+
+#Fit the GAM with lag structure
+model_lag_gam <- gam(
+  FSI_Bool ~ s(Soil_Moisture) + s(Time, bs = "cr") + lag_wheat,
+  data = data,
+  family = binomial(link = "logit")
+)
+
+summary(model_lag_gam)
+```
+
